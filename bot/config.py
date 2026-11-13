@@ -33,12 +33,12 @@ LOT_SIZE: float = 0.01            # Minimum lot
 # Target profit: $3.00 (gives room for gold/btc moves, far exceeds $0.24 spread)
 TAKE_PROFIT_USD: float = 3.00
 
-# Stop loss: $1.50 (متوازن يمتص السبريد والذبذبة دون خنق الصفقة)
-STOP_LOSS_USD: float = 1.50
+# Stop loss: $2.50 (allows market breathing room — won't be stopped by 20-cent noise)
+STOP_LOSS_USD: float = 2.50
 
-# Breakeven trigger: when profit reaches +$0.80, move SL to breakeven + $0.20
-BREAKEVEN_TRIGGER_USD: float = 0.80
-BREAKEVEN_LOCK_USD: float = 0.20
+# Breakeven trigger: when profit reaches +$1.50, move SL to breakeven + $0.30
+BREAKEVEN_TRIGGER_USD: float = 1.50
+BREAKEVEN_LOCK_USD: float = 0.30
 
 # Fallback SL/TP points for MT5 order
 SL_POINTS: int = 500
@@ -49,12 +49,11 @@ TP_POINTS: int = 600
 # Overtrading & frequency guards
 # حماية من فتح الصفقات المتكرر والنزيف
 # ──────────────────────────────────────────────────────────
-# Maximum open positions across all symbols (1 for Gold + 1 for Bitcoin)
-MAX_OPEN_POSITIONS: int = 2
-MAX_POSITIONS_PER_SYMBOL: int = 1
+# Maximum open positions across all symbols (trade 1 symbol at a time)
+MAX_OPEN_POSITIONS: int = 1
 
-# Cooldown after closing a trade before opening a new one on the SAME symbol (seconds)
-TRADE_COOLDOWN_SEC: int = 180     # 3 minutes cooldown per symbol
+# Cooldown after closing a trade before opening a new one (seconds)
+TRADE_COOLDOWN_SEC: int = 180     # 3 minutes cooldown
 
 
 # ──────────────────────────────────────────────────────────
@@ -75,8 +74,8 @@ HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score required (out of 6 — stricter quality filter)
-MIN_SIGNAL_SCORE: int = 5
+# Confluence score required (out of 6)
+MIN_SIGNAL_SCORE: int = 4
 
 # Indicator settings
 MACD_FAST: int     = 12
@@ -107,5 +106,5 @@ SESSION_FILTER_ENABLED: bool = True
 GOLD_SESSIONS: list = [(7, 21)]   # Active market hours UTC
 BTC_SESSIONS:  list = [(0, 24)]
 
-SCAN_INTERVAL_SEC: int = 3        # Scan loop interval (seconds)
+SCAN_INTERVAL_SEC: int = 5        # Scan loop interval (seconds)
 MAGIC_NUMBER:      int = 998877   # Bot trade identifier

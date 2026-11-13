@@ -61,8 +61,8 @@ class ScalperEngine:
         self.last_error = ""
         self.loop_count = 0
 
-        # Cooldown timer per symbol: time when last position closed
-        self._last_close_time: dict[str, float] = {s: 0.0 for s in config.SYMBOLS}
+        # Cooldown timer: time when last position closed
+        self._last_close_time: float = 0.0
 
         # Breakeven tracking per ticket {ticket: bool}
         self._breakeven_set: dict[int, bool] = {}
@@ -123,12 +123,8 @@ class ScalperEngine:
         daily_pnl = self._calc_daily_pnl()
         stats = self._calc_stats()
 
-        # Remaining cooldown seconds per symbol
-        cd_per_symbol = {
-            s: max(0, int(config.TRADE_COOLDOWN_SEC - (time.time() - self._last_close_time.get(s, 0.0))))
-            for s in config.SYMBOLS
-        }
-        remaining_cd = min([v for v in cd_per_symbol.values() if v > 0], default=0)
+        # Remaining cooldown seconds
+        remaining_cd = max(0, int(config.TRADE_COOLDOWN_SEC - (time.time() - self._last_close_time)))
 
         return {
             "bot_status": self.status,
@@ -162,7 +158,6 @@ class ScalperEngine:
             "stats": stats,
             "risk": {
                 "cooldown_remaining_sec": remaining_cd,
-                "cooldown_per_symbol": cd_per_symbol,
                 "max_daily_loss": config.MAX_DAILY_LOSS_USD,
             },
             "config": {
@@ -202,7 +197,7 @@ class ScalperEngine:
                     t["archived"] = True
             self._state["session_start"] = datetime.datetime.now().isoformat()
             self._state["stats"] = {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0}
-            self._last_close_time = {s: 0.0 for s in config.SYMBOLS}
+            self._last_close_time = 0.0
             _save_state(self._state)
             logger.info("Session reset ✓")
             return "reset_ok"
@@ -228,19 +223,6 @@ class ScalperEngine:
 
         logger.info("Bot loop terminated.")
 
-    def _update_all_analysis(self):
-        """Always refresh technical analysis for all symbols so dashboard is continuously updated."""
-        for symbol in config.SYMBOLS:
-            try:
-                candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
-                htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
-                if candles and len(candles) >= config.CANDLES_NEEDED:
-                    result = analysis.analyze(candles, htf_candles=htf_candles)
-                    self.last_signal[symbol] = result.get("signal", "WAIT")
-                    self.last_analysis[symbol] = result
-            except Exception as exc:
-                logger.warning("[%s] Failed to analyze: %s", symbol, exc)
-
     def _tick(self):
         if not mt5bridge.is_connected():
             if not mt5bridge.connect():
@@ -249,56 +231,41 @@ class ScalperEngine:
                 return
             self.status = "RUNNING"
 
-        # 1. Continuous Market Analysis for ALL symbols (Gold + Bitcoin)
-        self._update_all_analysis()
-
-        # 2. Sync closed deals from MT5 history
+        # 1. Sync closed deals from MT5 history
         self._sync_closed_trades()
 
         daily_pnl = self._calc_daily_pnl()
 
-        # 3. Strict Daily Loss Guard
+        # 2. Strict Daily Loss Guard
         if daily_pnl <= -config.MAX_DAILY_LOSS_USD:
             logger.warning("Daily loss limit reached ($%.2f / $%.2f). Pausing entries.",
                            abs(daily_pnl), config.MAX_DAILY_LOSS_USD)
             self.last_error = f"أوقف التداول: تم الوصول للحد الأقصى للخسارة اليومية (${config.MAX_DAILY_LOSS_USD})"
             return
 
-        # 4. Manage any open position (TP, SL, Breakeven)
+        # 3. Manage any open position (TP, SL, Breakeven)
         open_positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
         for pos in open_positions:
             self._manage_position(pos)
 
-        # 5. Check if we can open new positions
+        # 4. Check if we can open a new position
+        # Rules: Total open < MAX_OPEN_POSITIONS (1), and cooldown has passed
         open_positions_fresh = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
         if len(open_positions_fresh) >= config.MAX_OPEN_POSITIONS:
-            return  # Total maximum open positions reached
+            return  # Wait until current trade finishes
 
-        # Evaluate symbols independently (Gold & Bitcoin)
+        # Check cooldown
+        time_since_close = time.time() - self._last_close_time
+        if self._last_close_time > 0 and time_since_close < config.TRADE_COOLDOWN_SEC:
+            logger.debug("Cooldown active: %ds remaining", int(config.TRADE_COOLDOWN_SEC - time_since_close))
+            return
+
+        # Try to find a high-probability trade
         for symbol in config.SYMBOLS:
             if not self._running:
                 return
-
-            fresh_open = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
-            if len(fresh_open) >= config.MAX_OPEN_POSITIONS:
+            if len(mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)) >= config.MAX_OPEN_POSITIONS:
                 break
-
-            # Limit per symbol (1 Gold, 1 Bitcoin)
-            sym_open = [p for p in fresh_open if p.get("symbol") == symbol]
-            if len(sym_open) >= getattr(config, "MAX_POSITIONS_PER_SYMBOL", 1):
-                continue
-
-            # Per-symbol cooldown check
-            last_close = self._last_close_time.get(symbol, 0.0)
-            time_since_close = time.time() - last_close
-            if last_close > 0 and time_since_close < config.TRADE_COOLDOWN_SEC:
-                logger.debug("[%s] Cooldown active: %ds remaining", symbol, int(config.TRADE_COOLDOWN_SEC - time_since_close))
-                continue
-
-            # Session check
-            if config.SESSION_FILTER_ENABLED and not self._in_session(symbol):
-                continue
-
             self._evaluate_symbol(symbol)
 
     # ══════════════════════════════════════════════════════
@@ -311,7 +278,7 @@ class ScalperEngine:
         symbol = pos["symbol"]
 
         # ── 1. Breakeven Protection ────────────────────────
-        # When profit reaches +$1.00, move SL to entry + buffer ($0.20 locked)
+        # When profit reaches +$1.50, move SL to entry + $0.30
         if not self._breakeven_set.get(ticket, False):
             if profit >= config.BREAKEVEN_TRIGGER_USD:
                 self._move_to_breakeven(pos)
@@ -337,9 +304,9 @@ class ScalperEngine:
             )
             if res["success"]:
                 self._breakeven_set.pop(ticket, None)
-                self._last_close_time[symbol] = time.time()
+                self._last_close_time = time.time()
                 self._record_closed_trade(pos, profit, reason)
-                logger.info("[%s] Position #%d closed. Starting 3-minute cooldown for %s.", symbol, ticket, symbol)
+                logger.info("Position #%d closed. Starting 3-minute cooldown.", ticket)
             else:
                 logger.warning("Failed to close position #%d: %s", ticket, res.get("error"))
 
@@ -357,16 +324,8 @@ class ScalperEngine:
         point = float(getattr(sym_info, "point", 0.001))
         digits = int(getattr(sym_info, "digits", 3))
 
-        # Calculate buffer points for BREAKEVEN_LOCK_USD
-        tick_value = float(getattr(sym_info, "trade_tick_value", 0.0))
-        tick_size = float(getattr(sym_info, "trade_tick_size", point))
-        if tick_value <= 0 or tick_size <= 0:
-            tick_value, tick_size = 1.0, point
-        val_per_point = (tick_value / tick_size) * point * float(pos.get("volume", config.LOT_SIZE))
-        if val_per_point <= 0:
-            val_per_point = 0.001
-
-        buffer_pts = max(10, int(config.BREAKEVEN_LOCK_USD / val_per_point))
+        # Add small buffer in profit direction
+        buffer_pts = 30
         if pos_type == "BUY":
             new_sl = round(entry + buffer_pts * point, digits)
         else:
@@ -382,19 +341,27 @@ class ScalperEngine:
         res = mt5.order_send(req)
         if res and res.retcode in (10008, 10009):
             self._breakeven_set[ticket] = True
-            logger.info("[%s] Breakeven activated for #%d at %.3f (Risk-free trade now!)", symbol, ticket, new_sl)
+            logger.info("Breakeven activated for #%d at %.3f (Risk-free trade now!)", ticket, new_sl)
         else:
-            logger.warning("[%s] Could not set breakeven for #%d: %s", symbol, ticket, res.comment if res else "")
+            logger.warning("Could not set breakeven for #%d: %s", ticket, res.comment if res else "")
 
     # ══════════════════════════════════════════════════════
     # Trade Opening
     # ══════════════════════════════════════════════════════
 
     def _evaluate_symbol(self, symbol: str):
-        result = self.last_analysis.get(symbol)
-        if not result or result.get("signal") == analysis.SIGNAL_WAIT:
+        # Session check
+        if config.SESSION_FILTER_ENABLED and not self._in_session(symbol):
             return
-        if result.get("score", 0) < config.MIN_SIGNAL_SCORE:
+
+        candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
+        htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
+
+        result = analysis.analyze(candles, htf_candles=htf_candles)
+        self.last_signal[symbol] = result["signal"]
+        self.last_analysis[symbol] = result
+
+        if result["signal"] == analysis.SIGNAL_WAIT:
             return
 
         logger.info("[%s] High-Probability Signal: %s (%d/6) — %s",
@@ -416,7 +383,7 @@ class ScalperEngine:
         if value_per_point <= 0:
             value_per_point = 0.001
 
-        # Target $3.00, Stop $1.00
+        # Target $3.00, Stop $2.50
         tp_pts = int(config.TAKE_PROFIT_USD / value_per_point)
         sl_pts = int(config.STOP_LOSS_USD / value_per_point)
 
@@ -484,7 +451,6 @@ class ScalperEngine:
                 continue
 
             profit = deal["profit"]
-            deal_sym = deal.get("symbol", config.SYMBOLS[0])
             reason = "TP ✅" if profit >= 0 else "SL ❌"
 
             matched = False
@@ -496,7 +462,7 @@ class ScalperEngine:
                     t["deal_ticket"] = deal["ticket"]
                     matched = True
                     changed = True
-                    self._last_close_time[deal_sym] = time.time()
+                    self._last_close_time = time.time()
                     self._update_stats(profit)
                     break
 
@@ -511,7 +477,7 @@ class ScalperEngine:
                     "time": deal["time"],
                 })
                 self._update_stats(profit)
-                self._last_close_time[deal_sym] = time.time()
+                self._last_close_time = time.time()
                 changed = True
 
         if changed:
