@@ -49,11 +49,12 @@ TP_POINTS: int = 600
 # Overtrading & frequency guards
 # حماية من فتح الصفقات المتكرر والنزيف
 # ──────────────────────────────────────────────────────────
-# Maximum open positions across all symbols (trade 1 symbol at a time)
-MAX_OPEN_POSITIONS: int = 1
+# Maximum open positions across all symbols (1 for Gold + 1 for Bitcoin)
+MAX_OPEN_POSITIONS: int = 2
+MAX_POSITIONS_PER_SYMBOL: int = 1
 
-# Cooldown after closing a trade before opening a new one (seconds)
-TRADE_COOLDOWN_SEC: int = 180     # 3 minutes cooldown
+# Cooldown after closing a trade before opening a new one on the SAME symbol (seconds)
+TRADE_COOLDOWN_SEC: int = 180     # 3 minutes cooldown per symbol
 
 
 # ──────────────────────────────────────────────────────────
