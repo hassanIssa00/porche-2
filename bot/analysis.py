@@ -308,11 +308,11 @@ def _score_confluence(
 # فلتر السبريد — لا تفتح صفقة لو السبريد بياكل الربح
 # ══════════════════════════════════════════════════════════
 
-def _spread_viable(spread_usd: float, tp_usd: float, min_ratio: float = 2.0) -> bool:
+def _spread_viable(spread_usd: float, tp_usd: float, min_ratio: float = 1.0) -> bool:
     """
-    Return True only if TP / spread >= min_ratio.
-    Example: spread=$0.24, TP=$0.50 → ratio=2.08 → OK
-             spread=$0.24, TP=$0.30 → ratio=1.25 → REJECT
+    Return True if TP / spread >= min_ratio.
+    For micro-scalping (e.g. TP=$0.30, spread=$0.24 on Gold):
+    min_ratio=1.0 ensures we can trade as long as target profit exceeds or matches spread.
     """
     if spread_usd <= 0:
         return True
@@ -380,9 +380,9 @@ def analyze(
     spread_ok = True
     spread_msg = ""
     if spread_usd > 0 and tp_usd > 0:
-        spread_ok = _spread_viable(spread_usd, tp_usd, min_ratio=1.8)
+        spread_ok = _spread_viable(spread_usd, tp_usd, min_ratio=1.0)
         if not spread_ok:
-            spread_msg = f"Spread ${spread_usd:.3f} too wide vs TP ${tp_usd:.2f} (ratio={tp_usd/spread_usd:.2f}<1.8)"
+            spread_msg = f"Spread ${spread_usd:.3f} > TP ${tp_usd:.2f} (wait for spread to tighten)"
 
     # ── Score ──────────────────────────────────────────────
     b_score, s_score, b_why, s_why = _score_confluence(

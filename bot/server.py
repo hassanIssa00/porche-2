@@ -96,6 +96,10 @@ class BotHandler(BaseHTTPRequestHandler):
                     pass
             self._send_json({"result": "settings_updated", "status": _engine.get_status()["config"]})
 
+        elif path == "/reset":
+            result = _engine.reset_daily()
+            self._send_json({"result": result, "status": _engine.get_status()})
+
         else:
             self._send_json({"error": "Unknown endpoint"}, 404)
 

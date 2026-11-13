@@ -31,18 +31,21 @@ SYMBOLS: list[str] = ["XAUUSDm", "BTCUSDm"]   # Gold + Bitcoin (Exness broker su
 # ──────────────────────────────────────────────────────────
 LOT_SIZE: float = 0.01            # Minimum lot — keep risk tiny (أصغر لوت)
 
-# Take Profit: USD target per trade
-# XAUUSDm ATR (M5) ≈ $4 → TP of $2 is realistic (0.5 × ATR)
-# Note: actual TP in POINTS is calculated dynamically from ATR in engine.py
-TAKE_PROFIT_USD: float = 2.00     # Realistic target given spread=$0.24 & ATR=$4
+# ── SOFTWARE TP/SL (monitored every second in engine) ─────
+# These are the REAL targets — engine closes position when
+# floating P&L crosses these thresholds.
+# يتم مراقبة الـ P&L الحي كل ثانية، الإغلاق عند أول مكسب/خسارة
+TAKE_PROFIT_USD: float = 0.30     # Close immediately when profit >= $0.30
+STOP_LOSS_USD:   float = 0.30     # Close immediately when loss   >= $0.30
 
-# Stop Loss: USD floor per trade
-# Engine calculates ATR-based SL (1.0 × ATR) which may be larger than this
-STOP_LOSS_USD: float = 2.00       # Floor — real SL based on ATR in engine
-
-# Fallback SL/TP in POINTS if all else fails
-SL_POINTS: int  = 500             # Safe fallback
-TP_POINTS: int  = 500
+# ── MT5 HARD SL/TP (wide — just to satisfy broker requirements) ──
+# These are NOT the real targets. They are fallback safety nets.
+# الـ SL/TP في MT5 واسع فقط عشان البروكر يقبل الأوردر
+# البرنامج نفسه بيقفل الصفقة قبلها بكتير
+MT5_SL_MULTIPLIER: float = 2.0   # MT5 SL = 2 × ATR (wide safety net)
+MT5_TP_MULTIPLIER: float = 2.0   # MT5 TP = 2 × ATR (wide safety net)
+SL_POINTS: int  = 800             # Fallback if ATR unavailable
+TP_POINTS: int  = 800
 
 
 # ──────────────────────────────────────────────────────────
@@ -93,7 +96,7 @@ HTF_CANDLES: int    = 30          # Candles to fetch for HTF
 #   4. Price above BB midline (BUY) or below (SELL)
 #   5. ADX > 20 (trending market)
 #   6. M15 EMA alignment matches M5 signal
-MIN_SIGNAL_SCORE: int = 5         # Need 5/7 — strict filter (avoid bad trades)
+MIN_SIGNAL_SCORE: int = 4         # Score threshold (4/7) for responsive trend trading
 
 
 # ──────────────────────────────────────────────────────────
@@ -107,7 +110,7 @@ BB_PERIOD: int     = 20           # Bollinger Bands period
 BB_STD: float      = 2.0          # Bollinger Bands standard deviation multiplier
 ATR_PERIOD: int    = 14           # ATR period (Average True Range)
 ADX_PERIOD: int    = 14           # ADX period (trend strength)
-ADX_MIN: float     = 25.0         # Minimum ADX for trending market (25 = real trend)
+ADX_MIN: float     = 20.0         # Minimum ADX for trending market
 
 
 # ──────────────────────────────────────────────────────────
@@ -127,23 +130,23 @@ TRAIL_ATR_MULTIPLIER: float   = 0.5   # Trail distance = 0.5 × ATR
 # Gold is best during London + NY overlap: 08:00–17:00 UTC
 # Bitcoin trades 24/7 but is most active 14:00–22:00 UTC
 SESSION_FILTER_ENABLED: bool = True
-GOLD_SESSIONS: list = [(7, 20)]   # UTC hour ranges for Gold trading
+GOLD_SESSIONS: list = [(7, 21)]   # UTC hour ranges for Gold trading
 BTC_SESSIONS:  list = [(0, 24)]   # Bitcoin: all hours
 
 
 # ──────────────────────────────────────────────────────────
-# Risk management — consecutive losses protection
-# إدارة المخاطر — حماية من الخسائر المتتالية
+# Risk management — continuous trading preference
+# إدارة المخاطر — البوت لا يتوقف إلا بأمر المستخدم
 # ──────────────────────────────────────────────────────────
-MAX_CONSECUTIVE_LOSSES: int    = 3   # Pause after this many losses in a row
-PAUSE_CANDLES_AFTER_STREAK: int = 2  # Skip this many scans after loss streak
+MAX_CONSECUTIVE_LOSSES: int    = 5   # Just for tracking / warning
+PAUSE_CANDLES_AFTER_STREAK: int = 0  # 0 = do not pause; immediately look for next trade
 
 
 # ──────────────────────────────────────────────────────────
 # Bot timing
 # توقيت البوت
 # ──────────────────────────────────────────────────────────
-SCAN_INTERVAL_SEC: int = 10       # How often bot checks market (seconds)
+SCAN_INTERVAL_SEC: int = 5        # Scan market every 5 seconds
 MAGIC_NUMBER:      int = 998877   # Magic number to identify bot's trades
 
 
@@ -151,4 +154,5 @@ MAGIC_NUMBER:      int = 998877   # Magic number to identify bot's trades
 # Risk guard — maximum daily loss
 # حارس المخاطر — أقصى خسارة يومية
 # ──────────────────────────────────────────────────────────
-MAX_DAILY_LOSS_USD: float = 20.0  # Stop trading if daily loss exceeds this
+MAX_DAILY_LOSS_USD: float = 100.0 # Warning threshold
+AUTO_PAUSE_ON_DAILY_LOSS: bool = False  # False = Never auto-pause (stops only when user clicks STOP)

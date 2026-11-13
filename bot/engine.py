@@ -223,25 +223,64 @@ class ScalperEngine:
         self._state["settings_sl_usd"] = usd
         _save_state(self._state)
 
+    def reset_daily(self) -> str:
+        """Reset daily tracking so bot starts fresh without carrying previous test losses."""
+        with self._lock:
+            today = datetime.date.today().isoformat()
+            trades = self._state.setdefault("trades", [])
+            for t in trades:
+                if t.get("time", "").startswith(today):
+                    t["archived"] = True
+            self._state["session_start"] = datetime.datetime.now().isoformat()
+            self._state["stats"] = {
+                "total_wins": 0, "total_losses": 0,
+                "total_profit": 0.0, "total_loss": 0.0,
+            }
+            self._consecutive_losses = 0
+            self._pause_ticks = 0
+            _save_state(self._state)
+            logger.info("Daily session and stats reset ✓")
+            return "reset_ok"
+
     # ══════════════════════════════════════════════════════
     # Internal bot loop
     # ══════════════════════════════════════════════════════
 
     def _loop(self):
-        """Main bot loop — runs until self._running is False."""
-        logger.info("Bot loop started. Symbols: %s", config.SYMBOLS)
+        """
+        TWO-SPEED BOT LOOP — الحلقة ذات السرعتين:
+
+        Fast (every 1 sec):  Monitor open positions → close on ANY profit OR loss
+                             يراقب كل ثانية ويقفل عند أول مكسب أو خسارة
+
+        Slow (every SCAN_INTERVAL sec): Analyze market → open new trades
+                             كل SCAN_INTERVAL ثانية: تحليل وفتح صفقات جديدة
+
+        This gives us MANY small quick trades (scalp style).
+        """
+        logger.info("Bot loop started v2.1 (fast-close). Symbols: %s", config.SYMBOLS)
+        _scan_counter = 0
+
         while self._running:
             try:
-                self.loop_count += 1
-                self._tick()
+                # ─── FAST: check every second → close on any profit/loss ───
+                if self._fast_manage_positions():
+                    # Immediately trigger next tick to open next trade right away
+                    _scan_counter = config.SCAN_INTERVAL_SEC
+
+                # ─── SLOW: every SCAN_INTERVAL → full analysis + open ───────
+                _scan_counter += 1
+                if _scan_counter >= config.SCAN_INTERVAL_SEC:
+                    _scan_counter = 0
+                    self.loop_count += 1
+                    self._tick()
+
             except Exception as exc:
                 logger.exception("Unexpected error in bot loop: %s", exc)
                 self.last_error = str(exc)
-            # Sleep between scans — check _running every second
-            for _ in range(config.SCAN_INTERVAL_SEC):
-                if not self._running:
-                    break
-                time.sleep(1)
+
+            time.sleep(1)   # 1-second heartbeat
+
         logger.info("Bot loop exited.")
 
     def _tick(self):
@@ -258,13 +297,16 @@ class ScalperEngine:
 
         daily_pnl = self._calc_daily_pnl()
 
-        # 2. Max daily loss guard
+        # 2. Max daily loss check (only pause if explicitly configured)
         if daily_pnl <= -config.MAX_DAILY_LOSS_USD:
-            logger.warning("Max daily loss hit (%.2f). Pausing entries.", daily_pnl)
-            return
+            if getattr(config, "AUTO_PAUSE_ON_DAILY_LOSS", False):
+                logger.warning("Max daily loss hit (%.2f). Pausing entries.", daily_pnl)
+                return
+            else:
+                logger.debug("Daily loss is %.2f (continuing trading per user setting)", daily_pnl)
 
-        # 3. Pause ticks guard (after consecutive loss streak)
-        if self._pause_ticks > 0:
+        # 3. Pause ticks guard (only if PAUSE_CANDLES_AFTER_STREAK > 0)
+        if self._pause_ticks > 0 and getattr(config, "PAUSE_CANDLES_AFTER_STREAK", 0) > 0:
             self._pause_ticks -= 1
             logger.info("Loss streak pause — ticks remaining: %d", self._pause_ticks)
             return
@@ -278,24 +320,27 @@ class ScalperEngine:
             self._process_symbol(symbol, open_positions, daily_pnl)
 
     def _process_symbol(self, symbol: str, open_positions: list[dict], daily_pnl: float):
-        """Analyze one symbol: manage existing positions, then open new one if slot free."""
+        """
+        Analyze one symbol → open new trade if no open position AND slot free.
+        Note: position CLOSING is handled by _fast_manage_positions() every second.
+        ملاحظة: الإغلاق بيحصل في _fast_manage_positions كل ثانية — هنا بس نفتح جديد
+        """
 
         # ── Session filter ─────────────────────────────────
         if config.SESSION_FILTER_ENABLED and not self._in_session(symbol):
             logger.debug("[%s] Out of session hours — skipping", symbol)
             return
 
-        # ── Filter positions for this symbol ───────────────
+        # ── Check if any position open for this symbol ─────
         sym_positions = [
             p for p in open_positions
             if p["symbol"].upper().startswith(symbol[:3].upper())
         ]
 
-        # ── Manage open positions (trailing stop / close) ──
-        for pos in sym_positions:
-            self._manage_position(pos)
+        # Closing is handled by _fast_manage_positions() every second.
+        # Here we only need to know if there's an open position → skip opening.
 
-        # ── Refresh positions after any closes ─────────────
+        # ── Refresh current open positions ──────────────────
         open_positions_fresh = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
         sym_positions_fresh  = [
             p for p in open_positions_fresh
@@ -306,6 +351,70 @@ class ScalperEngine:
         # ── Open new position if slot available ────────────
         if len(sym_positions_fresh) == 0 and total_open < config.MAX_OPEN_POSITIONS:
             self._try_open(symbol)
+
+    # ══════════════════════════════════════════════════════
+    # FAST POSITION MANAGER — runs every 1 second
+    # مراقب الصفقات السريع — يشتغل كل ثانية
+    # ══════════════════════════════════════════════════════
+
+    def _fast_manage_positions(self) -> bool:
+        """
+        Called every second. Closes any position that:
+          • Has profit  >= TAKE_PROFIT_USD  → "Take profit now!"
+          • Has loss    >= STOP_LOSS_USD    → "Cut loss now!"
+
+        MT5 hard SL/TP are kept WIDE (ATR-based) to satisfy broker.
+        We close in SOFTWARE before broker's hard levels are ever hit.
+
+        يُغلق الصفقة فور ما تكون في ربح أو خسارة بغض النظر عن الكمية
+        حتى لو ربح صغير جداً = نقفل ونفتح صفقة جديدة
+        """
+        if not mt5bridge.is_connected():
+            return False
+
+        closed_any = False
+        positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
+        for pos in positions:
+            profit = pos["profit"]
+            ticket = pos["ticket"]
+
+            should_close = False
+            reason       = ""
+
+            if profit >= config.TAKE_PROFIT_USD:
+                should_close = True
+                reason = f"TP ✅ +${profit:.2f}"
+            elif profit <= -config.STOP_LOSS_USD:
+                should_close = True
+                reason = f"SL ❌ -${abs(profit):.2f}"
+
+            if should_close:
+                logger.info("FAST CLOSE %s #%d — %s", pos["symbol"], ticket, reason)
+                result = mt5bridge.close_position(
+                    ticket   = ticket,
+                    symbol   = pos["symbol"],
+                    lot      = pos["volume"],
+                    pos_type = pos["type"],
+                )
+                if result["success"]:
+                    closed_any = True
+                    self._trail_state.pop(ticket, None)
+                    self._record_closed_trade(pos, profit, reason)
+                    # Update consecutive loss streak
+                    if profit < 0:
+                        self._consecutive_losses += 1
+                        if self._consecutive_losses >= config.MAX_CONSECUTIVE_LOSSES:
+                            self._pause_ticks = getattr(config, "PAUSE_CANDLES_AFTER_STREAK", 0)
+                            if self._pause_ticks > 0:
+                                logger.warning("Loss streak %d → pausing %d ticks",
+                                               self._consecutive_losses, self._pause_ticks)
+                    else:
+                        self._consecutive_losses = 0
+                    logger.info("Fast-closed ✓ profit=%.2f", profit)
+                else:
+                    logger.warning("Fast-close failed #%d: %s", ticket, result.get("error"))
+
+        return closed_any
 
     # ══════════════════════════════════════════════════════
     # Position management (TP / SL / trailing stop)
@@ -660,6 +769,7 @@ class ScalperEngine:
             if t.get("profit") is not None
             and t.get("time", "").startswith(today)
             and t.get("reason") not in ("OPENED",)
+            and not t.get("archived", False)
         )
         floating = sum(
             p["profit"]

@@ -181,6 +181,10 @@
           class="w-full py-2 rounded-lg bg-[var(--primary)] hover:opacity-90 text-[var(--primary-foreground)] text-xs font-semibold transition-opacity">
           💾 حفظ الإعدادات
         </button>
+        <button onclick="resetSession()"
+          class="w-full mt-2 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--border)] text-xs font-semibold transition-colors">
+          🔄 تصفير إحصائيات الجلسة
+        </button>
 
         <!-- Error box -->
         <div id="error-box" class="mt-3 hidden text-xs text-red-400 bg-red-900/20 border border-red-700/40 rounded-lg p-2"></div>
@@ -583,6 +587,18 @@ async function saveSettings() {
     setTimeout(refresh, 500);
   } catch(e) {
     showMsg('error-box', '⚠ تعذر حفظ الإعدادات', 0);
+  }
+}
+
+async function resetSession() {
+  if (!confirm('هل تريد تصفير أرباح وإحصائيات جلسة اليوم والبدء من جديد؟')) return;
+  try {
+    const r = await fetch(`${API}/reset`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const d = await r.json();
+    showMsg('ok-box', '✅ تم تصفير الجلسة بنجاح!');
+    setTimeout(refresh, 500);
+  } catch(e) {
+    showMsg('error-box', '⚠ تعذر تصفير الجلسة', 0);
   }
 }
 
