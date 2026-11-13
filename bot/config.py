@@ -33,12 +33,12 @@ LOT_SIZE: float = 0.01            # Minimum lot
 # Target profit: $3.00 (gives room for gold/btc moves, far exceeds $0.24 spread)
 TAKE_PROFIT_USD: float = 3.00
 
-# Stop loss: $0.50 (حوالي 50 سنت كما طلب المستخدم بالضبط)
-STOP_LOSS_USD: float = 0.50
+# Stop loss: $1.50 (متوازن يمتص السبريد والذبذبة دون خنق الصفقة)
+STOP_LOSS_USD: float = 1.50
 
-# Breakeven trigger: when profit reaches +$0.80, move SL to breakeven + $0.15
+# Breakeven trigger: when profit reaches +$0.80, move SL to breakeven + $0.20
 BREAKEVEN_TRIGGER_USD: float = 0.80
-BREAKEVEN_LOCK_USD: float = 0.15
+BREAKEVEN_LOCK_USD: float = 0.20
 
 # Fallback SL/TP points for MT5 order
 SL_POINTS: int = 500
@@ -75,8 +75,8 @@ HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score required (out of 6)
-MIN_SIGNAL_SCORE: int = 4
+# Confluence score required (out of 6 — stricter quality filter)
+MIN_SIGNAL_SCORE: int = 5
 
 # Indicator settings
 MACD_FAST: int     = 12
@@ -107,5 +107,5 @@ SESSION_FILTER_ENABLED: bool = True
 GOLD_SESSIONS: list = [(7, 21)]   # Active market hours UTC
 BTC_SESSIONS:  list = [(0, 24)]
 
-SCAN_INTERVAL_SEC: int = 2        # Fast scan loop interval (2 seconds for tight SL response)
+SCAN_INTERVAL_SEC: int = 3        # Scan loop interval (seconds)
 MAGIC_NUMBER:      int = 998877   # Bot trade identifier
