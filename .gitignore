@@ -1,0 +1,28 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Bot state & logs
+state.json
+issssmail_bot.log
+issssmail_bot_old.log
+*.lock
+*.log
+
+# MT5 lock files
+.mt5_execution.lock
+gold_btc_bot.lock
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+desktop.ini
