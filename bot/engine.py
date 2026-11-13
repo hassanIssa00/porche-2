@@ -1,25 +1,15 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v2.0 — Core Trading Engine
-  المحرك الأساسي لبوت التداول — النسخة الذكية المحسّنة
+  ISSSSMAIL SCALPER BOT v3.0 — Professional Swing Scalper
+  محرك التداول الاحترافي — استراتيجية بولباك منضبطة
 =============================================================
 
-Enhancements over v1.0:
-  ✅ Multi-indicator confluence scoring (not just EMA+RSI)
-  ✅ ATR-based dynamic SL/TP calculation
-  ✅ Trailing stop (breakeven + trailing SL)
-  ✅ Session filter (trade Gold only during active hours)
-  ✅ Consecutive losses protection (pause after loss streak)
-  ✅ M15 HTF trend confirmation fetched automatically
-  ✅ Performance stats: win rate, profit factor, avg win/loss
-  ✅ All settings persist across restarts (state.json)
-
-الاستراتيجية:
-  • الذهب والبيتكوين فقط
-  • نظام درجات التقاطع: 6 مؤشرات — الصفقة تفتح لو الدرجة ≥ 4
-  • SL/TP ديناميكية مبنية على ATR
-  • وقف خسارة متحرك يحمي الأرباح
-  • لا يتوقف إلا بضغطة زرار من المستخدم
+Rules enforced by this engine:
+  1. No overtrading: Only 1 position open at a time across account.
+  2. 3-Minute Cooldown: After a trade closes, no new trades for 180s.
+  3. Real Targets: TP = $3.00, SL = $2.50 (wide enough to survive spread/noise).
+  4. Breakeven Protection: At +$1.50 profit, SL is automatically moved to entry + $0.30.
+  5. Account Protection: Stops trading automatically if daily loss reaches $15.00.
 """
 
 import time
@@ -35,10 +25,6 @@ from bot import config, analysis, mt5bridge
 
 logger = logging.getLogger("issssmail.engine")
 
-
-# ──────────────────────────────────────────────────────────
-# State persistence — survives process restarts
-# ──────────────────────────────────────────────────────────
 STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "state.json")
 
 
@@ -51,10 +37,7 @@ def _load_state() -> dict:
             "trades": [],
             "daily_pnl": 0.0,
             "session_start": None,
-            "stats": {
-                "total_wins": 0, "total_losses": 0,
-                "total_profit": 0.0, "total_loss": 0.0,
-            },
+            "stats": {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0},
         }
 
 
@@ -66,47 +49,31 @@ def _save_state(state: dict) -> None:
         logger.warning("Could not save state: %s", exc)
 
 
-# ──────────────────────────────────────────────────────────
-# ScalperEngine — the main bot controller
-# المحرك الرئيسي للبوت
-# ──────────────────────────────────────────────────────────
 class ScalperEngine:
-    """
-    Main bot engine. Runs in a background thread.
-    Call start() to begin trading. Call stop() to halt gracefully.
-    Thread-safe: all shared state protected by self._lock.
-    """
-
     def __init__(self):
-        self._running  = False
+        self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._lock     = threading.Lock()
+        self._lock = threading.Lock()
 
-        # Live status (read by dashboard via get_status())
-        self.status       = "STOPPED"       # STOPPED | RUNNING | ERROR
-        self.last_signal  = {s: "—" for s in config.SYMBOLS}
-        self.last_analysis= {s: {} for s in config.SYMBOLS}
-        self.last_error   = ""
-        self.loop_count   = 0
+        self.status = "STOPPED"
+        self.last_signal = {s: "—" for s in config.SYMBOLS}
+        self.last_analysis = {s: {} for s in config.SYMBOLS}
+        self.last_error = ""
+        self.loop_count = 0
 
-        # Consecutive loss streak protection
-        self._consecutive_losses = 0
-        self._pause_ticks        = 0   # remaining ticks to pause per symbol
+        # Cooldown timer: time when last position closed
+        self._last_close_time: float = 0.0
 
-        # Trailing stop tracking {ticket: {"trail_started": bool, "breakeven_set": bool}}
-        self._trail_state: dict[int, dict] = {}
+        # Breakeven tracking per ticket {ticket: bool}
+        self._breakeven_set: dict[int, bool] = {}
 
-        # Persistent state
         self._state = _load_state()
         if self._state.get("session_start") is None:
             self._state["session_start"] = datetime.datetime.now().isoformat()
         if "stats" not in self._state:
-            self._state["stats"] = {
-                "total_wins": 0, "total_losses": 0,
-                "total_profit": 0.0, "total_loss": 0.0,
-            }
+            self._state["stats"] = {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0}
 
-        # Restore saved settings (survive restarts)
+        # Keep saved settings
         if "settings_daily_goal" in self._state:
             config.DAILY_GOAL_USD = float(self._state["settings_daily_goal"])
         if "settings_tp_usd" in self._state:
@@ -115,7 +82,7 @@ class ScalperEngine:
             config.STOP_LOSS_USD = float(self._state["settings_sl_usd"])
 
     # ══════════════════════════════════════════════════════
-    # Public API — called by HTTP server (bot/server.py)
+    # Public API
     # ══════════════════════════════════════════════════════
 
     def start(self) -> str:
@@ -123,18 +90,16 @@ class ScalperEngine:
             if self._running:
                 return "already_running"
             if not mt5bridge.connect():
-                self.status    = "ERROR"
-                self.last_error = "Cannot connect to MT5. Make sure MT5 is running and logged in."
+                self.status = "ERROR"
+                self.last_error = "Cannot connect to MT5. Make sure MT5 is running."
                 return "mt5_error"
-            self._running  = True
-            self.status    = "RUNNING"
+            self._running = True
+            self.status = "RUNNING"
             self._state["session_start"] = datetime.datetime.now().isoformat()
             _save_state(self._state)
-            self._thread = threading.Thread(
-                target=self._loop, daemon=True, name="ScalperBot"
-            )
+            self._thread = threading.Thread(target=self._loop, daemon=True, name="ScalperBot")
             self._thread.start()
-            logger.info("Bot started ✓  v2.0")
+            logger.info("Bot started v3.0 (Disciplined Pullback Scalper)")
             return "started"
 
     def stop(self) -> str:
@@ -142,69 +107,69 @@ class ScalperEngine:
             if not self._running:
                 return "already_stopped"
             self._running = False
-            self.status   = "STOPPED"
+            self.status = "STOPPED"
         if self._thread:
-            self._thread.join(timeout=15)
+            self._thread.join(timeout=10)
         mt5bridge.disconnect()
         logger.info("Bot stopped ✓")
         return "stopped"
 
     def get_status(self) -> dict:
-        """Return full snapshot for dashboard — includes all v2.0 fields."""
         if not mt5bridge.is_connected():
-            mt5bridge.connect()   # read-only connect
+            mt5bridge.connect()
 
-        acc       = mt5bridge.account_info() or {}
+        acc = mt5bridge.account_info() or {}
         positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
         daily_pnl = self._calc_daily_pnl()
-        stats     = self._calc_stats()
+        stats = self._calc_stats()
+
+        # Remaining cooldown seconds
+        remaining_cd = max(0, int(config.TRADE_COOLDOWN_SEC - (time.time() - self._last_close_time)))
 
         return {
-            "bot_status":    self.status,
-            "connected":     mt5bridge.is_connected(),
-            "last_error":    self.last_error,
-            "loop_count":    self.loop_count,
-            "version":       "2.0",
+            "bot_status": self.status,
+            "connected": mt5bridge.is_connected(),
+            "last_error": self.last_error,
+            "loop_count": self.loop_count,
+            "version": "3.0",
             "account": {
-                "balance":   acc.get("balance",  0.0),
-                "equity":    acc.get("equity",   0.0),
-                "profit":    acc.get("profit",   0.0),
-                "currency":  acc.get("currency", "USD"),
-                "login":     acc.get("login",    "—"),
+                "balance": acc.get("balance", 0.0),
+                "equity": acc.get("equity", 0.0),
+                "profit": acc.get("profit", 0.0),
+                "currency": acc.get("currency", "USD"),
+                "login": acc.get("login", "—"),
             },
             "daily": {
-                "pnl":        round(daily_pnl, 2),
-                "goal":       config.DAILY_GOAL_USD,
-                "goal_pct":   round(
-                    min((daily_pnl / config.DAILY_GOAL_USD) * 100, 100), 1
-                ) if config.DAILY_GOAL_USD > 0 else 0,
-                "goal_hit":   daily_pnl >= config.DAILY_GOAL_USD,
-                "max_loss":   config.MAX_DAILY_LOSS_USD,
-                "loss_hit":   daily_pnl <= -config.MAX_DAILY_LOSS_USD,
+                "pnl": round(daily_pnl, 2),
+                "goal": config.DAILY_GOAL_USD,
+                "goal_pct": round(min((daily_pnl / config.DAILY_GOAL_USD) * 100, 100), 1) if config.DAILY_GOAL_USD > 0 else 0,
+                "goal_hit": daily_pnl >= config.DAILY_GOAL_USD,
+                "max_loss": config.MAX_DAILY_LOSS_USD,
+                "loss_hit": daily_pnl <= -config.MAX_DAILY_LOSS_USD,
             },
-            "open_positions":  positions,
+            "open_positions": positions,
             "positions_count": len(positions),
-            "signals":         self.last_signal,
-            "analysis":        self.last_analysis,
-            "trades":          self._state.get("trades", [])[-50:],
-            "trade_count":     len(self._state.get("trades", [])),
-            "session_start":   self._state.get("session_start", ""),
-            "timestamp":       datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "stats":           stats,
+            "signals": self.last_signal,
+            "analysis": self.last_analysis,
+            "trades": self._state.get("trades", [])[-50:],
+            "trade_count": len(self._state.get("trades", [])),
+            "session_start": self._state.get("session_start", ""),
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "stats": stats,
             "risk": {
-                "consecutive_losses": self._consecutive_losses,
-                "pause_ticks":        self._pause_ticks,
+                "cooldown_remaining_sec": remaining_cd,
+                "max_daily_loss": config.MAX_DAILY_LOSS_USD,
             },
             "config": {
-                "symbols":      config.SYMBOLS,
-                "lot_size":     config.LOT_SIZE,
-                "tp_usd":       config.TAKE_PROFIT_USD,
-                "sl_usd":       config.STOP_LOSS_USD,
-                "scan_sec":     config.SCAN_INTERVAL_SEC,
-                "daily_goal":   config.DAILY_GOAL_USD,
-                "min_score":    config.MIN_SIGNAL_SCORE,
-                "trail":        config.TRAIL_ENABLED,
-                "session_filter": config.SESSION_FILTER_ENABLED,
+                "symbols": config.SYMBOLS,
+                "lot_size": config.LOT_SIZE,
+                "tp_usd": config.TAKE_PROFIT_USD,
+                "sl_usd": config.STOP_LOSS_USD,
+                "breakeven_trigger": config.BREAKEVEN_TRIGGER_USD,
+                "scan_sec": config.SCAN_INTERVAL_SEC,
+                "daily_goal": config.DAILY_GOAL_USD,
+                "cooldown_sec": config.TRADE_COOLDOWN_SEC,
+                "max_positions": config.MAX_OPEN_POSITIONS,
             },
         }
 
@@ -224,7 +189,6 @@ class ScalperEngine:
         _save_state(self._state)
 
     def reset_daily(self) -> str:
-        """Reset daily tracking so bot starts fresh without carrying previous test losses."""
         with self._lock:
             today = datetime.date.today().isoformat()
             trades = self._state.setdefault("trades", [])
@@ -232,538 +196,305 @@ class ScalperEngine:
                 if t.get("time", "").startswith(today):
                     t["archived"] = True
             self._state["session_start"] = datetime.datetime.now().isoformat()
-            self._state["stats"] = {
-                "total_wins": 0, "total_losses": 0,
-                "total_profit": 0.0, "total_loss": 0.0,
-            }
-            self._consecutive_losses = 0
-            self._pause_ticks = 0
+            self._state["stats"] = {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0}
+            self._last_close_time = 0.0
             _save_state(self._state)
-            logger.info("Daily session and stats reset ✓")
+            logger.info("Session reset ✓")
             return "reset_ok"
 
     # ══════════════════════════════════════════════════════
-    # Internal bot loop
+    # Main Engine Loop
     # ══════════════════════════════════════════════════════
 
     def _loop(self):
-        """
-        TWO-SPEED BOT LOOP — الحلقة ذات السرعتين:
-
-        Fast (every 1 sec):  Monitor open positions → close on ANY profit OR loss
-                             يراقب كل ثانية ويقفل عند أول مكسب أو خسارة
-
-        Slow (every SCAN_INTERVAL sec): Analyze market → open new trades
-                             كل SCAN_INTERVAL ثانية: تحليل وفتح صفقات جديدة
-
-        This gives us MANY small quick trades (scalp style).
-        """
-        logger.info("Bot loop started v2.1 (fast-close). Symbols: %s", config.SYMBOLS)
-        _scan_counter = 0
-
+        logger.info("Bot loop running. Checking every %d seconds.", config.SCAN_INTERVAL_SEC)
         while self._running:
             try:
-                # ─── FAST: check every second → close on any profit/loss ───
-                if self._fast_manage_positions():
-                    # Immediately trigger next tick to open next trade right away
-                    _scan_counter = config.SCAN_INTERVAL_SEC
-
-                # ─── SLOW: every SCAN_INTERVAL → full analysis + open ───────
-                _scan_counter += 1
-                if _scan_counter >= config.SCAN_INTERVAL_SEC:
-                    _scan_counter = 0
-                    self.loop_count += 1
-                    self._tick()
-
+                self.loop_count += 1
+                self._tick()
             except Exception as exc:
-                logger.exception("Unexpected error in bot loop: %s", exc)
+                logger.exception("Unexpected error in loop: %s", exc)
                 self.last_error = str(exc)
 
-            time.sleep(1)   # 1-second heartbeat
+            for _ in range(config.SCAN_INTERVAL_SEC):
+                if not self._running:
+                    break
+                time.sleep(1)
 
-        logger.info("Bot loop exited.")
+        logger.info("Bot loop terminated.")
 
     def _tick(self):
-        """One full iteration: sync → check risk → analyze → manage → open."""
         if not mt5bridge.is_connected():
             if not mt5bridge.connect():
-                self.status    = "ERROR"
+                self.status = "ERROR"
                 self.last_error = "MT5 disconnected"
                 return
             self.status = "RUNNING"
 
-        # 1. Pull closed trades from MT5 history
+        # 1. Sync closed deals from MT5 history
         self._sync_closed_trades()
 
         daily_pnl = self._calc_daily_pnl()
 
-        # 2. Max daily loss check (only pause if explicitly configured)
+        # 2. Strict Daily Loss Guard
         if daily_pnl <= -config.MAX_DAILY_LOSS_USD:
-            if getattr(config, "AUTO_PAUSE_ON_DAILY_LOSS", False):
-                logger.warning("Max daily loss hit (%.2f). Pausing entries.", daily_pnl)
-                return
-            else:
-                logger.debug("Daily loss is %.2f (continuing trading per user setting)", daily_pnl)
-
-        # 3. Pause ticks guard (only if PAUSE_CANDLES_AFTER_STREAK > 0)
-        if self._pause_ticks > 0 and getattr(config, "PAUSE_CANDLES_AFTER_STREAK", 0) > 0:
-            self._pause_ticks -= 1
-            logger.info("Loss streak pause — ticks remaining: %d", self._pause_ticks)
+            logger.warning("Daily loss limit reached ($%.2f / $%.2f). Pausing entries.",
+                           abs(daily_pnl), config.MAX_DAILY_LOSS_USD)
+            self.last_error = f"أوقف التداول: تم الوصول للحد الأقصى للخسارة اليومية (${config.MAX_DAILY_LOSS_USD})"
             return
 
+        # 3. Manage any open position (TP, SL, Breakeven)
         open_positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
+        for pos in open_positions:
+            self._manage_position(pos)
 
-        # 4. Process each symbol
+        # 4. Check if we can open a new position
+        # Rules: Total open < MAX_OPEN_POSITIONS (1), and cooldown has passed
+        open_positions_fresh = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
+        if len(open_positions_fresh) >= config.MAX_OPEN_POSITIONS:
+            return  # Wait until current trade finishes
+
+        # Check cooldown
+        time_since_close = time.time() - self._last_close_time
+        if self._last_close_time > 0 and time_since_close < config.TRADE_COOLDOWN_SEC:
+            logger.debug("Cooldown active: %ds remaining", int(config.TRADE_COOLDOWN_SEC - time_since_close))
+            return
+
+        # Try to find a high-probability trade
         for symbol in config.SYMBOLS:
             if not self._running:
                 return
-            self._process_symbol(symbol, open_positions, daily_pnl)
-
-    def _process_symbol(self, symbol: str, open_positions: list[dict], daily_pnl: float):
-        """
-        Analyze one symbol → open new trade if no open position AND slot free.
-        Note: position CLOSING is handled by _fast_manage_positions() every second.
-        ملاحظة: الإغلاق بيحصل في _fast_manage_positions كل ثانية — هنا بس نفتح جديد
-        """
-
-        # ── Session filter ─────────────────────────────────
-        if config.SESSION_FILTER_ENABLED and not self._in_session(symbol):
-            logger.debug("[%s] Out of session hours — skipping", symbol)
-            return
-
-        # ── Check if any position open for this symbol ─────
-        sym_positions = [
-            p for p in open_positions
-            if p["symbol"].upper().startswith(symbol[:3].upper())
-        ]
-
-        # Closing is handled by _fast_manage_positions() every second.
-        # Here we only need to know if there's an open position → skip opening.
-
-        # ── Refresh current open positions ──────────────────
-        open_positions_fresh = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
-        sym_positions_fresh  = [
-            p for p in open_positions_fresh
-            if p["symbol"].upper().startswith(symbol[:3].upper())
-        ]
-        total_open = len(open_positions_fresh)
-
-        # ── Open new position if slot available ────────────
-        if len(sym_positions_fresh) == 0 and total_open < config.MAX_OPEN_POSITIONS:
-            self._try_open(symbol)
+            if len(mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)) >= config.MAX_OPEN_POSITIONS:
+                break
+            self._evaluate_symbol(symbol)
 
     # ══════════════════════════════════════════════════════
-    # FAST POSITION MANAGER — runs every 1 second
-    # مراقب الصفقات السريع — يشتغل كل ثانية
-    # ══════════════════════════════════════════════════════
-
-    def _fast_manage_positions(self) -> bool:
-        """
-        Called every second. Closes any position that:
-          • Has profit  >= TAKE_PROFIT_USD  → "Take profit now!"
-          • Has loss    >= STOP_LOSS_USD    → "Cut loss now!"
-
-        MT5 hard SL/TP are kept WIDE (ATR-based) to satisfy broker.
-        We close in SOFTWARE before broker's hard levels are ever hit.
-
-        يُغلق الصفقة فور ما تكون في ربح أو خسارة بغض النظر عن الكمية
-        حتى لو ربح صغير جداً = نقفل ونفتح صفقة جديدة
-        """
-        if not mt5bridge.is_connected():
-            return False
-
-        closed_any = False
-        positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
-        for pos in positions:
-            profit = pos["profit"]
-            ticket = pos["ticket"]
-
-            should_close = False
-            reason       = ""
-
-            if profit >= config.TAKE_PROFIT_USD:
-                should_close = True
-                reason = f"TP ✅ +${profit:.2f}"
-            elif profit <= -config.STOP_LOSS_USD:
-                should_close = True
-                reason = f"SL ❌ -${abs(profit):.2f}"
-
-            if should_close:
-                logger.info("FAST CLOSE %s #%d — %s", pos["symbol"], ticket, reason)
-                result = mt5bridge.close_position(
-                    ticket   = ticket,
-                    symbol   = pos["symbol"],
-                    lot      = pos["volume"],
-                    pos_type = pos["type"],
-                )
-                if result["success"]:
-                    closed_any = True
-                    self._trail_state.pop(ticket, None)
-                    self._record_closed_trade(pos, profit, reason)
-                    # Update consecutive loss streak
-                    if profit < 0:
-                        self._consecutive_losses += 1
-                        if self._consecutive_losses >= config.MAX_CONSECUTIVE_LOSSES:
-                            self._pause_ticks = getattr(config, "PAUSE_CANDLES_AFTER_STREAK", 0)
-                            if self._pause_ticks > 0:
-                                logger.warning("Loss streak %d → pausing %d ticks",
-                                               self._consecutive_losses, self._pause_ticks)
-                    else:
-                        self._consecutive_losses = 0
-                    logger.info("Fast-closed ✓ profit=%.2f", profit)
-                else:
-                    logger.warning("Fast-close failed #%d: %s", ticket, result.get("error"))
-
-        return closed_any
-
-    # ══════════════════════════════════════════════════════
-    # Position management (TP / SL / trailing stop)
+    # Position Management (Breakeven + Exit)
     # ══════════════════════════════════════════════════════
 
     def _manage_position(self, pos: dict):
-        """
-        Check if a position should be closed (USD-based TP/SL).
-        Also handle trailing stop logic.
-        """
         profit = pos["profit"]
         ticket = pos["ticket"]
+        symbol = pos["symbol"]
 
-        # ── Initialize trail state for new positions ───────
-        if ticket not in self._trail_state:
-            self._trail_state[ticket] = {
-                "breakeven_set": False,
-                "trail_started": False,
-            }
+        # ── 1. Breakeven Protection ────────────────────────
+        # When profit reaches +$1.50, move SL to entry + $0.30
+        if not self._breakeven_set.get(ticket, False):
+            if profit >= config.BREAKEVEN_TRIGGER_USD:
+                self._move_to_breakeven(pos)
 
-        ts = self._trail_state[ticket]
-
+        # ── 2. Take Profit & Stop Loss ─────────────────────
         should_close = False
-        close_reason = ""
+        reason = ""
 
-        # ── USD-based TP / SL check ────────────────────────
         if profit >= config.TAKE_PROFIT_USD:
             should_close = True
-            close_reason = f"TP hit: +${profit:.2f} 🎯"
+            reason = f"TP Hit: +${profit:.2f} 🎯"
         elif profit <= -config.STOP_LOSS_USD:
             should_close = True
-            close_reason = f"SL hit: -${abs(profit):.2f} ❌"
-
-        # ── Trailing stop logic ────────────────────────────
-        if config.TRAIL_ENABLED and not should_close and profit > 0:
-            self._apply_trailing_stop(pos, ts)
+            reason = f"SL Hit: -${abs(profit):.2f} ❌"
 
         if should_close:
-            logger.info("Closing %s #%d — %s", pos["symbol"], ticket, close_reason)
-            result = mt5bridge.close_position(
-                ticket   = ticket,
-                symbol   = pos["symbol"],
-                lot      = pos["volume"],
-                pos_type = pos["type"],
+            logger.info("Closing position %s #%d — %s", symbol, ticket, reason)
+            res = mt5bridge.close_position(
+                ticket=ticket,
+                symbol=symbol,
+                lot=pos["volume"],
+                pos_type=pos["type"]
             )
-            if result["success"]:
-                # Remove trailing state for this ticket
-                self._trail_state.pop(ticket, None)
-                self._record_closed_trade(pos, profit, close_reason)
-                # Update consecutive loss counter
-                if profit < 0:
-                    self._consecutive_losses += 1
-                    if self._consecutive_losses >= config.MAX_CONSECUTIVE_LOSSES:
-                        self._pause_ticks = config.PAUSE_CANDLES_AFTER_STREAK
-                        logger.warning(
-                            "Loss streak (%d). Pausing for %d ticks.",
-                            self._consecutive_losses, self._pause_ticks
-                        )
-                else:
-                    self._consecutive_losses = 0  # reset on win
-                logger.info("Closed ✓  profit=%.2f", profit)
+            if res["success"]:
+                self._breakeven_set.pop(ticket, None)
+                self._last_close_time = time.time()
+                self._record_closed_trade(pos, profit, reason)
+                logger.info("Position #%d closed. Starting 3-minute cooldown.", ticket)
             else:
-                logger.warning("Close failed: %s", result.get("error"))
+                logger.warning("Failed to close position #%d: %s", ticket, res.get("error"))
 
-    def _apply_trailing_stop(self, pos: dict, ts: dict):
-        """
-        Move SL to breakeven or trail it once profit is sufficient.
-        Uses ATR-based trailing distance from last analysis.
-        """
-        profit  = pos["profit"]
-        tp_usd  = config.TAKE_PROFIT_USD
-
-        # Get ATR from last analysis for this symbol
-        sym_analysis = self.last_analysis.get(pos["symbol"], {})
-        atr = sym_analysis.get("atr")
-
-        # Phase 1: Move to breakeven when profit ≥ TRAIL_BREAKEVEN_AT_PCT × TP
-        if not ts["breakeven_set"] and profit >= tp_usd * config.TRAIL_BREAKEVEN_AT_PCT:
-            new_sl = pos["price_open"]  # breakeven = entry price
-            if self._modify_sl(pos, new_sl):
-                ts["breakeven_set"] = True
-                logger.info("Breakeven set for #%d (profit=%.2f)", pos["ticket"], profit)
-
-        # Phase 2: Trail SL when profit ≥ TRAIL_START_AT_PCT × TP
-        elif ts["breakeven_set"] and profit >= tp_usd * config.TRAIL_START_AT_PCT:
-            if atr and atr > 0:
-                trail_dist = atr * config.TRAIL_ATR_MULTIPLIER
-                sym_info = mt5bridge.get_symbol_info(pos["symbol"])
-                point = float(getattr(sym_info, "point", 0.001)) if sym_info else 0.001
-                digits = int(getattr(sym_info, "digits", 3)) if sym_info else 3
-
-                tick = mt5bridge.get_tick(pos["symbol"])
-                if tick:
-                    if pos["type"] == "BUY":
-                        new_sl = round(tick["bid"] - trail_dist, digits)
-                        if new_sl > pos["sl"]:  # only move SL up
-                            self._modify_sl(pos, new_sl)
-                            ts["trail_started"] = True
-                    else:  # SELL
-                        new_sl = round(tick["ask"] + trail_dist, digits)
-                        if new_sl < pos["sl"] or pos["sl"] == 0:  # only move SL down
-                            self._modify_sl(pos, new_sl)
-                            ts["trail_started"] = True
-
-    def _modify_sl(self, pos: dict, new_sl: float) -> bool:
-        """Send a modify order to update SL for an open position."""
-        import MetaTrader5 as mt5  # local import — only if MT5 available
-        sym = pos["symbol"]
-        sym_info = mt5bridge.get_symbol_info(sym)
-        if sym_info is None:
-            return False
-        request = {
-            "action":   mt5.TRADE_ACTION_SLTP,
-            "position": pos["ticket"],
-            "symbol":   sym,
-            "sl":       float(new_sl),
-            "tp":       float(pos["tp"]),
-        }
-        result = mt5.order_send(request)
-        if result and result.retcode in (10008, 10009):
-            logger.debug("SL modified for #%d to %.5f", pos["ticket"], new_sl)
-            return True
-        logger.warning("SL modify failed for #%d: %s", pos["ticket"],
-                       result.comment if result else "no result")
-        return False
-
-    # ══════════════════════════════════════════════════════
-    # Trade opening — confluence-based
-    # ══════════════════════════════════════════════════════
-
-    def _try_open(self, symbol: str):
-        """Fetch candles, run confluence analysis, open trade if score is high enough."""
-
-        # ── Fetch M5 candles (primary TF) ─────────────────
-        candles = mt5bridge.get_candles(
-            symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20
-        )
-
-        # ── Fetch M15 candles (HTF confirmation) ──────────
-        htf_candles = mt5bridge.get_candles(
-            symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10
-        )
-
-        # ── Get tick and symbol info first (needed for spread filter) ──
-        tick     = mt5bridge.get_tick(symbol)
+    def _move_to_breakeven(self, pos: dict):
+        """Move Stop Loss to entry price + small buffer to lock in profit."""
+        import MetaTrader5 as mt5
+        ticket = pos["ticket"]
+        symbol = pos["symbol"]
+        pos_type = pos["type"]
+        entry = pos["price_open"]
         sym_info = mt5bridge.get_symbol_info(symbol)
-        if tick is None or sym_info is None:
-            logger.warning("[%s] Cannot get tick or symbol info", symbol)
+        if not sym_info:
             return
 
-        point      = float(getattr(sym_info, "point",             0.001))
-        digits     = int(getattr(sym_info,   "digits",            3))
-        tick_value = float(getattr(sym_info, "trade_tick_value",  0.0))
-        tick_size  = float(getattr(sym_info, "trade_tick_size",   point))
+        point = float(getattr(sym_info, "point", 0.001))
+        digits = int(getattr(sym_info, "digits", 3))
 
-        if tick_value <= 0 or tick_size <= 0:
-            tick_value = 1.0
-            tick_size  = point
+        # Add small buffer in profit direction
+        buffer_pts = 30
+        if pos_type == "BUY":
+            new_sl = round(entry + buffer_pts * point, digits)
+        else:
+            new_sl = round(entry - buffer_pts * point, digits)
 
-        # value_per_point: USD profit per 1 point move with LOT_SIZE lots
-        value_per_point = (tick_value / tick_size) * point * config.LOT_SIZE
+        req = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "symbol": symbol,
+            "sl": float(new_sl),
+            "tp": float(pos["tp"]),
+        }
+        res = mt5.order_send(req)
+        if res and res.retcode in (10008, 10009):
+            self._breakeven_set[ticket] = True
+            logger.info("Breakeven activated for #%d at %.3f (Risk-free trade now!)", ticket, new_sl)
+        else:
+            logger.warning("Could not set breakeven for #%d: %s", ticket, res.comment if res else "")
 
-        # Spread in USD (used to filter low R:R trades)
-        spread_pts = max(0, int((tick["ask"] - tick["bid"]) / point))
-        spread_usd = spread_pts * value_per_point
+    # ══════════════════════════════════════════════════════
+    # Trade Opening
+    # ══════════════════════════════════════════════════════
 
-        # ── Run analysis (pass spread so it can filter bad trades) ──
-        result = analysis.analyze(
-            candles,
-            htf_candles=htf_candles,
-            spread_usd=spread_usd,
-            tp_usd=config.TAKE_PROFIT_USD,
-        )
-        self.last_signal[symbol]    = result["signal"]
-        self.last_analysis[symbol]  = result
+    def _evaluate_symbol(self, symbol: str):
+        # Session check
+        if config.SESSION_FILTER_ENABLED and not self._in_session(symbol):
+            return
+
+        candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
+        htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
+
+        result = analysis.analyze(candles, htf_candles=htf_candles)
+        self.last_signal[symbol] = result["signal"]
+        self.last_analysis[symbol] = result
 
         if result["signal"] == analysis.SIGNAL_WAIT:
-            logger.debug("[%s] WAIT (score=%d/7) — %s", symbol, result["score"], result["reason"])
             return
 
-        logger.info("[%s] Signal=%s score=%d/7 | %s",
+        logger.info("[%s] High-Probability Signal: %s (%d/6) — %s",
                     symbol, result["signal"], result["score"], result["reason"])
 
-        # ── SMART SL/TP: ATR-based, respects spread & broker limits ──
-        # Key insight: SL must be >> spread, and TP must be realistic vs ATR
-        atr = result.get("atr")
-
-        if atr and atr > 0 and value_per_point > 0:
-            # ATR-based:
-            #   SL = 1.0 × ATR (gives enough room for natural price movement)
-            #   TP = 0.8 × ATR (realistic target — slightly less than 1 ATR move)
-            # This ensures: even if market oscillates 1 ATR, SL holds
-            atr_sl_pts = int(atr * 1.0 / point)
-            atr_tp_pts = int(atr * 0.8 / point)
-
-            # USD floor (minimum acceptable TP/SL in USD)
-            usd_sl_pts = max(50, int(config.STOP_LOSS_USD   / value_per_point) + 10)
-            usd_tp_pts = max(50, int(config.TAKE_PROFIT_USD / value_per_point) + 10)
-
-            # Use max of ATR-based vs USD-based (never too tight)
-            sl_pts = max(atr_sl_pts, usd_sl_pts)
-            tp_pts = max(atr_tp_pts, usd_tp_pts)
-        elif value_per_point > 0:
-            sl_pts = max(50, int(config.STOP_LOSS_USD   / value_per_point) + 10)
-            tp_pts = max(50, int(config.TAKE_PROFIT_USD / value_per_point) + 10)
-        else:
-            sl_pts = config.SL_POINTS
-            tp_pts = config.TP_POINTS
-
-        # Respect broker minimum stop level
-        broker_min = int(getattr(sym_info, "trade_stops_level", 0))
-        sl_pts = max(sl_pts, broker_min + 10)
-        tp_pts = max(tp_pts, broker_min + 10)
-
-        # SL must be at least 2× spread (never get stopped by spread alone)
-        sl_pts = max(sl_pts, spread_pts * 2)
-        # TP must be at least 2× spread (minimum acceptable reward)
-        tp_pts = max(tp_pts, spread_pts * 2)
-
-        actual_tp_usd = tp_pts * value_per_point
-        actual_sl_usd = sl_pts * value_per_point
-        rr_ratio = actual_tp_usd / actual_sl_usd if actual_sl_usd > 0 else 0
-
-        logger.info("[%s] spread=$%.3f atr=%s  sl_pts=%d($%.2f) tp_pts=%d($%.2f) R:R=%.2f",
-                    symbol, spread_usd, atr, sl_pts, actual_sl_usd, tp_pts, actual_tp_usd, rr_ratio)
-
-        # ── Calculate entry / SL / TP prices ──────────────
-        if result["signal"] == analysis.SIGNAL_BUY:
-            entry     = tick["ask"]
-            sl        = round(entry - sl_pts * point, digits)
-            tp        = round(entry + tp_pts * point, digits)
-            direction = "BUY"
-        else:
-            entry     = tick["bid"]
-            sl        = round(entry + sl_pts * point, digits)
-            tp        = round(entry - tp_pts * point, digits)
-            direction = "SELL"
-
-        logger.info("[%s] %s  entry=%.5f  sl=%.5f  tp=%.5f", symbol, direction, entry, sl, tp)
-
-        # ── Send order ─────────────────────────────────────
-        trade_result = mt5bridge.open_trade(
-            symbol    = symbol,
-            direction = direction,
-            lot       = config.LOT_SIZE,
-            sl        = sl,
-            tp        = tp,
-            magic     = config.MAGIC_NUMBER,
-            comment   = f"ISS2_{direction[:1]}_s{result['score']}",
-        )
-
-        if trade_result["success"]:
-            logger.info("Opened %s #%d @ %.5f (score=%d/6)",
-                        direction, trade_result["ticket"], trade_result["price"], result["score"])
-            self.last_error = ""
-            self._record_trade({
-                "ticket":   trade_result["ticket"],
-                "symbol":   symbol,
-                "type":     direction,
-                "profit":   None,
-                "reason":   "OPENED",
-                "score":    result["score"],
-                "analysis": result["reason"],
-                "time":     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            })
-        else:
-            err = trade_result.get("error", "unknown")
-            logger.warning("Trade open failed [%s]: %s", symbol, err)
-            self.last_error = f"[{symbol}] {err}"
-
-    # ══════════════════════════════════════════════════════
-    # Closed trades sync
-    # ══════════════════════════════════════════════════════
-
-    def _sync_closed_trades(self):
-        """
-        Read today's closed deals from MT5 history and update the trade log.
-        Catches SL/TP closes that happen inside the broker without engine seeing them.
-        Also updates performance stats (win/loss counters).
-        """
-        closed_deals = mt5bridge.get_today_closed_deals(magic=config.MAGIC_NUMBER)
-        if not closed_deals:
+        tick = mt5bridge.get_tick(symbol)
+        sym_info = mt5bridge.get_symbol_info(symbol)
+        if not tick or not sym_info:
             return
 
-        trades     = self._state.setdefault("trades", [])
-        seen_deals = {t.get("deal_ticket") for t in trades if t.get("deal_ticket")}
+        point = float(getattr(sym_info, "point", 0.001))
+        digits = int(getattr(sym_info, "digits", 3))
+        tick_value = float(getattr(sym_info, "trade_tick_value", 0.0))
+        tick_size = float(getattr(sym_info, "trade_tick_size", point))
+        if tick_value <= 0 or tick_size <= 0:
+            tick_value, tick_size = 1.0, point
 
-        changed = False
-        for deal in closed_deals:
-            if deal["ticket"] in seen_deals:
-                continue   # already recorded
+        value_per_point = (tick_value / tick_size) * point * config.LOT_SIZE
+        if value_per_point <= 0:
+            value_per_point = 0.001
 
-            profit = deal["profit"]
-            reason = "TP ✅" if profit >= 0 else "SL ❌"
+        # Target $3.00, Stop $2.50
+        tp_pts = int(config.TAKE_PROFIT_USD / value_per_point)
+        sl_pts = int(config.STOP_LOSS_USD / value_per_point)
 
-            # ── Update existing OPENED record ───────────────
-            matched = False
-            for t in trades:
-                if t.get("ticket") == deal["position_id"] and t.get("reason") == "OPENED":
-                    t["profit"]      = profit
-                    t["reason"]      = reason
-                    t["close_time"]  = deal["time"]
-                    t["deal_ticket"] = deal["ticket"]
-                    matched  = True
-                    changed  = True
-                    # Update performance stats
-                    self._update_stats(profit)
-                    logger.info("Trade #%d closed — profit=%.2f (%s)",
-                                deal["position_id"], profit, reason)
-                    break
+        # Broker stop level buffer
+        broker_min = int(getattr(sym_info, "trade_stops_level", 0))
+        sl_pts = max(sl_pts, broker_min + 50)
+        tp_pts = max(tp_pts, broker_min + 50)
 
-            if not matched:
-                trades.append({
-                    "ticket":      deal["position_id"],
-                    "deal_ticket": deal["ticket"],
-                    "symbol":      deal["symbol"],
-                    "type":        deal["type"],
-                    "profit":      profit,
-                    "reason":      reason,
-                    "time":        deal["time"],
-                })
-                self._update_stats(profit)
-                changed = True
-                logger.info("New closed trade recorded — profit=%.2f (%s)", profit, reason)
-
-        if changed:
-            _save_state(self._state)
-
-    def _update_stats(self, profit: float) -> None:
-        """Update win/loss stats after a trade closes."""
-        stats = self._state.setdefault("stats", {
-            "total_wins": 0, "total_losses": 0,
-            "total_profit": 0.0, "total_loss": 0.0,
-        })
-        if profit >= 0:
-            stats["total_wins"]   = stats.get("total_wins", 0) + 1
-            stats["total_profit"] = stats.get("total_profit", 0.0) + profit
+        if result["signal"] == analysis.SIGNAL_BUY:
+            entry = tick["ask"]
+            sl = round(entry - sl_pts * point, digits)
+            tp = round(entry + tp_pts * point, digits)
+            direction = "BUY"
         else:
-            stats["total_losses"] = stats.get("total_losses", 0) + 1
-            stats["total_loss"]   = stats.get("total_loss", 0.0) + abs(profit)
+            entry = tick["bid"]
+            sl = round(entry + sl_pts * point, digits)
+            tp = round(entry - tp_pts * point, digits)
+            direction = "SELL"
+
+        logger.info("[%s] Executing %s: entry=%.3f, SL=%.3f ($%.2f), TP=%.3f ($%.2f)",
+                    symbol, direction, entry, sl, config.STOP_LOSS_USD, tp, config.TAKE_PROFIT_USD)
+
+        res = mt5bridge.open_trade(
+            symbol=symbol,
+            direction=direction,
+            lot=config.LOT_SIZE,
+            sl=sl,
+            tp=tp,
+            magic=config.MAGIC_NUMBER,
+            comment=f"PULLBACK_{direction[:1]}",
+        )
+
+        if res["success"]:
+            logger.info("Opened %s #%d at %.3f", direction, res["ticket"], res["price"])
+            self.last_error = ""
+            self._record_trade({
+                "ticket": res["ticket"],
+                "symbol": symbol,
+                "type": direction,
+                "profit": None,
+                "reason": "OPENED",
+                "score": result["score"],
+                "analysis": result["reason"],
+                "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            })
+        else:
+            logger.warning("Trade failed [%s]: %s", symbol, res.get("error"))
+            self.last_error = f"[{symbol}] {res.get('error')}"
 
     # ══════════════════════════════════════════════════════
     # Helpers
     # ══════════════════════════════════════════════════════
 
+    def _sync_closed_trades(self):
+        closed_deals = mt5bridge.get_today_closed_deals(magic=config.MAGIC_NUMBER)
+        if not closed_deals:
+            return
+
+        trades = self._state.setdefault("trades", [])
+        seen_deals = {t.get("deal_ticket") for t in trades if t.get("deal_ticket")}
+        changed = False
+
+        for deal in closed_deals:
+            if deal["ticket"] in seen_deals:
+                continue
+
+            profit = deal["profit"]
+            reason = "TP ✅" if profit >= 0 else "SL ❌"
+
+            matched = False
+            for t in trades:
+                if t.get("ticket") == deal["position_id"] and t.get("reason") == "OPENED":
+                    t["profit"] = profit
+                    t["reason"] = reason
+                    t["close_time"] = deal["time"]
+                    t["deal_ticket"] = deal["ticket"]
+                    matched = True
+                    changed = True
+                    self._last_close_time = time.time()
+                    self._update_stats(profit)
+                    break
+
+            if not matched:
+                trades.append({
+                    "ticket": deal["position_id"],
+                    "deal_ticket": deal["ticket"],
+                    "symbol": deal["symbol"],
+                    "type": deal["type"],
+                    "profit": profit,
+                    "reason": reason,
+                    "time": deal["time"],
+                })
+                self._update_stats(profit)
+                self._last_close_time = time.time()
+                changed = True
+
+        if changed:
+            _save_state(self._state)
+
+    def _update_stats(self, profit: float):
+        stats = self._state.setdefault("stats", {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0})
+        if profit >= 0:
+            stats["total_wins"] = stats.get("total_wins", 0) + 1
+            stats["total_profit"] = stats.get("total_profit", 0.0) + profit
+        else:
+            stats["total_losses"] = stats.get("total_losses", 0) + 1
+            stats["total_loss"] = stats.get("total_loss", 0.0) + abs(profit)
+
     def _calc_daily_pnl(self) -> float:
-        """Sum of profits from today's closed trades + current floating P&L."""
         trades = self._state.get("trades", [])
-        today  = datetime.date.today().isoformat()
+        today = datetime.date.today().isoformat()
         closed = sum(
             t["profit"] for t in trades
             if t.get("profit") is not None
@@ -771,74 +502,57 @@ class ScalperEngine:
             and t.get("reason") not in ("OPENED",)
             and not t.get("archived", False)
         )
-        floating = sum(
-            p["profit"]
-            for p in mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
-        )
+        floating = sum(p["profit"] for p in mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER))
         return closed + floating
 
     def _calc_stats(self) -> dict:
-        """Compute performance statistics for display in dashboard."""
-        stats      = self._state.get("stats", {})
-        total_wins  = stats.get("total_wins", 0)
-        total_losses= stats.get("total_losses", 0)
-        total_profit= stats.get("total_profit", 0.0)
-        total_loss  = stats.get("total_loss", 0.0)
-        total_trades= total_wins + total_losses
-
-        win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0.0
-        avg_win  = (total_profit / total_wins)  if total_wins   > 0 else 0.0
-        avg_loss = (total_loss   / total_losses) if total_losses > 0 else 0.0
-        profit_factor = (total_profit / total_loss) if total_loss > 0 else 0.0
-
+        stats = self._state.get("stats", {})
+        tw = stats.get("total_wins", 0)
+        tl = stats.get("total_losses", 0)
+        tp = stats.get("total_profit", 0.0)
+        t_loss = stats.get("total_loss", 0.0)
+        total = tw + tl
+        win_rate = (tw / total * 100) if total > 0 else 0.0
+        pf = (tp / t_loss) if t_loss > 0 else 0.0
         return {
-            "total_trades":   total_trades,
-            "total_wins":     total_wins,
-            "total_losses":   total_losses,
-            "win_rate_pct":   round(win_rate, 1),
-            "profit_factor":  round(profit_factor, 2),
-            "avg_win":        round(avg_win, 2),
-            "avg_loss":       round(avg_loss, 2),
-            "total_profit":   round(total_profit, 2),
-            "total_loss":     round(total_loss, 2),
+            "total_trades": total,
+            "total_wins": tw,
+            "total_losses": tl,
+            "win_rate_pct": round(win_rate, 1),
+            "profit_factor": round(pf, 2),
+            "total_profit": round(tp, 2),
+            "total_loss": round(t_loss, 2),
         }
 
     def _in_session(self, symbol: str) -> bool:
-        """Return True if current UTC hour is within trading session for symbol."""
         utc_hour = datetime.datetime.utcnow().hour
-        if symbol.upper().startswith("XAU"):
-            sessions = config.GOLD_SESSIONS
-        else:
-            sessions = config.BTC_SESSIONS
-        for start_h, end_h in sessions:
-            if start_h <= utc_hour < end_h:
+        sessions = config.GOLD_SESSIONS if symbol.upper().startswith("XAU") else config.BTC_SESSIONS
+        for s_h, e_h in sessions:
+            if s_h <= utc_hour < e_h:
                 return True
         return False
 
-    def _record_trade(self, trade: dict) -> None:
+    def _record_trade(self, trade: dict):
         self._state.setdefault("trades", []).append(trade)
         _save_state(self._state)
 
-    def _record_closed_trade(self, pos: dict, profit: float, reason: str) -> None:
-        """Record a manually closed trade (by _manage_position)."""
+    def _record_closed_trade(self, pos: dict, profit: float, reason: str):
         trades = self._state.setdefault("trades", [])
-        # Try to update existing OPENED record
         for t in trades:
             if t.get("ticket") == pos["ticket"] and t.get("reason") == "OPENED":
-                t["profit"]     = profit
-                t["reason"]     = reason
+                t["profit"] = profit
+                t["reason"] = reason
                 t["close_time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._update_stats(profit)
                 _save_state(self._state)
                 return
-        # Not found — add new record
         trades.append({
-            "ticket":     pos["ticket"],
-            "symbol":     pos["symbol"],
-            "type":       pos["type"],
-            "profit":     profit,
-            "reason":     reason,
-            "time":       datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ticket": pos["ticket"],
+            "symbol": pos["symbol"],
+            "type": pos["type"],
+            "profit": profit,
+            "reason": reason,
+            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
         self._update_stats(profit)
         _save_state(self._state)
