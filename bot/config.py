@@ -33,12 +33,12 @@ LOT_SIZE: float = 0.01            # Minimum lot
 # Target profit: $3.00 (gives room for gold/btc moves, far exceeds $0.24 spread)
 TAKE_PROFIT_USD: float = 3.00
 
-# Stop loss: $2.50 (allows market breathing room — won't be stopped by 20-cent noise)
-STOP_LOSS_USD: float = 2.50
+# Stop loss: $1.00 (cut loss early — small loss instead of $2.50)
+STOP_LOSS_USD: float = 1.00
 
-# Breakeven trigger: when profit reaches +$1.50, move SL to breakeven + $0.30
-BREAKEVEN_TRIGGER_USD: float = 1.50
-BREAKEVEN_LOCK_USD: float = 0.30
+# Breakeven trigger: when profit reaches +$1.00, move SL to breakeven + $0.20
+BREAKEVEN_TRIGGER_USD: float = 1.00
+BREAKEVEN_LOCK_USD: float = 0.20
 
 # Fallback SL/TP points for MT5 order
 SL_POINTS: int = 500
