@@ -1,40 +1,39 @@
 @echo off
-chcp 65001 >nul
-title ISSSSMAIL Scalper Bot
-
-echo.
+title ISSSSMAIL Scalper Bot v2.1
+color 0A
 echo ============================================================
-echo   ISSSSMAIL SCALPER BOT  - Gold + Bitcoin
-echo   بوت تداول الذهب والبيتكوين
+echo   ISSSSMAIL SCALPER BOT v2.1 - SMART EDITION
+echo   Gold + Bitcoin - Multi-Indicator Confluence System
 echo ============================================================
 echo.
+echo [*] Starting bot server...
 
-REM Change to project directory
 cd /d "%~dp0"
 
-REM Check if MT5 is configured
-echo [1/2] Checking Python environment...
-python --version
-if errorlevel 1 (
-    echo [ERROR] Python not found! Please install Python 3.10+
-    pause
-    exit /b 1
+REM Kill any existing instance on port 8765
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8765" ^| findstr "LISTENING"') do (
+    taskkill /PID %%a /F >nul 2>&1
 )
 
-echo.
-echo [2/2] Starting ISSSSMAIL Bot API Server...
-echo.
-echo Dashboard: Open dashboard.html in Antigravity side pane
-echo API:       http://127.0.0.1:8765
-echo.
-echo Press Ctrl+C to stop the bot server
-echo ============================================================
-echo.
-
-REM Open dashboard in browser after 2 seconds
 timeout /t 2 /nobreak >nul
-start "" "C:\Users\hassa\.gemini\antigravity\brain\02e71f78-e23d-4289-9b44-7b339e201ce9\dashboard.html"
 
-python main.py
+REM Start bot in background
+start /B pythonw main.py
 
-pause
+echo [*] Waiting for server to start...
+timeout /t 5 /nobreak >nul
+
+REM Open dashboard in default browser
+start "" "dashboard.html"
+
+echo.
+echo [OK] Bot is running! Dashboard opened in browser.
+echo [OK] Press any key to stop the bot and exit.
+echo.
+pause >nul
+
+REM Kill bot on exit
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8765" ^| findstr "LISTENING"') do (
+    taskkill /PID %%a /F >nul 2>&1
+)
+echo [STOPPED] Bot stopped. Goodbye!

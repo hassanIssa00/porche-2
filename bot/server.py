@@ -104,6 +104,8 @@ class BotHandler(BaseHTTPRequestHandler):
 # Server start
 # ──────────────────────────────────────────────────────────
 def run_server():
+    # allow_reuse_address prevents "Address already in use" on quick restart
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer((HOST, PORT), BotHandler)
     logger.info("API server listening on http://%s:%d", HOST, PORT)
     server.serve_forever()

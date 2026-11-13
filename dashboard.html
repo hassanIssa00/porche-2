@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ISSSSMAIL Scalper Bot v2.0</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .pulse { animation: pulse 1.5s infinite; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; }
+
+    .trade-scroll { max-height: 300px; overflow-y: auto; }
+    .trade-scroll::-webkit-scrollbar { width: 4px; }
+    .trade-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    @keyframes grow { from{width:0} }
+    .progress-bar { animation: grow .6s ease; }
+
+    .metric-card { transition: transform .15s, box-shadow .15s; }
+    .metric-card:hover { transform: translateY(-2px); }
+
+    .score-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin: 1px; }
+    .score-filled { background: #22c55e; }
+    .score-empty  { background: #374151; }
+
+    .signal-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    }
+    .badge-buy  { background: #15803d22; color: #22c55e; border: 1px solid #22c55e55; }
+    .badge-sell { background: #b9112222; color: #f87171; border: 1px solid #f8717155; }
+    .badge-wait { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b55; }
+
+    .ind-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; border-bottom: 1px solid var(--border); }
+    .ind-row:last-child { border-bottom: none; }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4">
+
+  <div class="max-w-5xl mx-auto">
+
+    <!-- HEADER -->
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="text-2xl">📊</div>
+        <div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">ISSSSMAIL Scalper Bot</h1>
+          <p class="text-xs text-[var(--muted-foreground)]">ذهب + بيتكوين · سكالبر ذكي <span class="text-green-400 font-bold">v2.0</span></p>
+        </div>
+      </div>
+      <div class="text-left">
+        <div id="conn-badge" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)]">
+          <span id="conn-dot" class="w-2 h-2 rounded-full bg-gray-400"></span>
+          <span id="conn-text">جاري الاتصال…</span>
+        </div>
+        <p id="ts" class="text-xs text-[var(--muted-foreground)] mt-1 text-left">—</p>
+      </div>
+    </div>
+
+    <!-- TOP METRICS -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div class="metric-card bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <p class="text-xs text-[var(--muted-foreground)] mb-1">الرصيد</p>
+        <p id="balance" class="text-xl font-bold">—</p>
+        <p id="currency" class="text-xs text-[var(--muted-foreground)]">USD</p>
+      </div>
+      <div class="metric-card bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <p class="text-xs text-[var(--muted-foreground)] mb-1">السيولة</p>
+        <p id="equity" class="text-xl font-bold">—</p>
+        <p class="text-xs text-[var(--muted-foreground)]">Equity</p>
+      </div>
+      <div class="metric-card bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <p class="text-xs text-[var(--muted-foreground)] mb-1">ربح/خسارة عائم</p>
+        <p id="profit" class="text-xl font-bold">—</p>
+        <p class="text-xs text-[var(--muted-foreground)]">Floating P&amp;L</p>
+      </div>
+      <div class="metric-card bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <p class="text-xs text-[var(--muted-foreground)] mb-1">ربح اليوم</p>
+        <p id="daily-pnl" class="text-xl font-bold">—</p>
+        <p id="daily-goal-txt" class="text-xs text-[var(--muted-foreground)]">الهدف: —</p>
+      </div>
+    </div>
+
+    <!-- DAILY GOAL PROGRESS -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 mb-4">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-sm font-semibold">تقدم الهدف اليومي</span>
+        <span id="goal-pct" class="text-sm font-bold text-[var(--primary)]">0%</span>
+      </div>
+      <div class="w-full bg-[var(--border)] rounded-full h-3 overflow-hidden">
+        <div id="goal-bar" class="progress-bar h-3 rounded-full bg-green-500 transition-all duration-500" style="width:0%"></div>
+      </div>
+      <p id="goal-detail" class="text-xs text-[var(--muted-foreground)] mt-1 text-left">$0.00 من $10 · 0% مكتمل</p>
+    </div>
+
+    <!-- PERFORMANCE STATS (new in v2.0) -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 mb-4">
+      <p class="text-sm font-semibold mb-3">📈 إحصائيات الأداء</p>
+      <div class="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">إجمالي صفقات</p>
+          <p id="stat-total" class="text-base font-bold">—</p>
+        </div>
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">فائزة</p>
+          <p id="stat-wins" class="text-base font-bold text-green-400">—</p>
+        </div>
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">خاسرة</p>
+          <p id="stat-losses" class="text-base font-bold text-red-400">—</p>
+        </div>
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">نسبة الفوز</p>
+          <p id="stat-winrate" class="text-base font-bold text-blue-400">—</p>
+        </div>
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">معامل الربح</p>
+          <p id="stat-pf" class="text-base font-bold text-yellow-400">—</p>
+        </div>
+        <div>
+          <p class="text-xs text-[var(--muted-foreground)]">خسائر متتالية</p>
+          <p id="stat-streak" class="text-base font-bold text-orange-400">—</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN GRID: CONTROL + SIGNALS -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+
+      <!-- LEFT: CONTROL PANEL -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+        <p class="text-sm font-semibold mb-4">🎛 لوحة التحكم</p>
+
+        <!-- Bot status -->
+        <div class="flex items-center gap-2 mb-4 text-sm">
+          <span id="bot-dot" class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+          <span id="bot-status-txt" class="font-medium text-[var(--muted-foreground)]">البوت موقوف</span>
+        </div>
+
+        <!-- Start / Stop -->
+        <div class="flex gap-3 mb-5">
+          <button id="btn-start" onclick="startBot()"
+            class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors">
+            ▶ تشغيل البوت
+          </button>
+          <button id="btn-stop" onclick="stopBot()"
+            class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors">
+            ⏹ إيقاف البوت
+          </button>
+        </div>
+
+        <!-- Settings -->
+        <p class="text-xs text-[var(--muted-foreground)] font-semibold mb-2">⚙ الإعدادات السريعة</p>
+        <div class="grid grid-cols-3 gap-2 mb-3">
+          <div>
+            <label class="text-xs text-[var(--muted-foreground)]">($) TP</label>
+            <input id="inp-tp" type="number" step="0.1" min="0.1" max="5"
+              class="w-full mt-1 px-2 py-1.5 rounded-md text-sm bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]"
+              value="0.5" />
+          </div>
+          <div>
+            <label class="text-xs text-[var(--muted-foreground)]">($) SL</label>
+            <input id="inp-sl" type="number" step="0.1" min="0.1" max="5"
+              class="w-full mt-1 px-2 py-1.5 rounded-md text-sm bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]"
+              value="0.5" />
+          </div>
+          <div>
+            <label class="text-xs text-[var(--muted-foreground)]">هدف يومي ($)</label>
+            <input id="inp-goal" type="number" step="1" min="1"
+              class="w-full mt-1 px-2 py-1.5 rounded-md text-sm bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]"
+              value="10" />
+          </div>
+        </div>
+        <button onclick="saveSettings()"
+          class="w-full py-2 rounded-lg bg-[var(--primary)] hover:opacity-90 text-[var(--primary-foreground)] text-xs font-semibold transition-opacity">
+          💾 حفظ الإعدادات
+        </button>
+
+        <!-- Error box -->
+        <div id="error-box" class="mt-3 hidden text-xs text-red-400 bg-red-900/20 border border-red-700/40 rounded-lg p-2"></div>
+        <!-- Success box -->
+        <div id="ok-box" class="mt-3 hidden text-xs text-green-400 bg-green-900/20 border border-green-700/40 rounded-lg p-2"></div>
+      </div>
+
+      <!-- RIGHT: ANALYSIS SIGNALS -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+        <p class="text-sm font-semibold mb-4">📡 إشارات التحليل <span class="text-xs text-[var(--muted-foreground)] font-normal">(نظام التقاطع v2.0)</span></p>
+        <div id="signals-container" class="space-y-3"></div>
+
+        <!-- Open positions mini list -->
+        <div class="mt-4 pt-3 border-t border-[var(--border)]">
+          <div class="flex justify-between items-center mb-2">
+            <p class="text-xs font-semibold text-[var(--muted-foreground)]">📂 صفقات مفتوحة</p>
+            <span id="pos-count" class="text-xs bg-blue-900/30 text-blue-400 border border-blue-700/40 px-2 py-0.5 rounded-full">0</span>
+          </div>
+          <div id="positions-list" class="space-y-1.5 text-xs"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TRADE LOG -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+      <div class="flex justify-between items-center mb-3">
+        <p class="text-sm font-semibold">📋 سجل الصفقات</p>
+        <span id="trade-count" class="text-xs bg-[var(--border)] px-2 py-0.5 rounded-full">0 صفقة</span>
+      </div>
+      <div class="trade-scroll">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-[var(--muted-foreground)] border-b border-[var(--border)]">
+              <th class="text-right pb-2 font-medium">الوقت</th>
+              <th class="text-right pb-2 font-medium">الرمز</th>
+              <th class="text-right pb-2 font-medium">النوع</th>
+              <th class="text-right pb-2 font-medium">الدرجة</th>
+              <th class="text-right pb-2 font-medium">الحالة</th>
+              <th class="text-left pb-2 font-medium">الربح</th>
+            </tr>
+          </thead>
+          <tbody id="trade-tbody"></tbody>
+        </table>
+        <p id="no-trades" class="text-center text-[var(--muted-foreground)] py-6 text-xs">لا توجد صفقات بعد</p>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <p class="text-center text-xs text-[var(--muted-foreground)] mt-4">
+      ISSSSMAIL Scalper Bot v2.0 · Gold + Bitcoin · يتحدث كل 5 ثانية · نظام التقاطع المتعدد
+    </p>
+
+  </div><!-- /max-w -->
+
+<script>
+/* ══════════════════════════════════════════════════════
+   ISSSSMAIL Dashboard v2.0 — JavaScript
+   ══════════════════════════════════════════════════════ */
+
+const API = 'http://127.0.0.1:8765';
+let _settingsLoaded = false;
+let _refreshTimer   = null;
+
+// ── Utility ────────────────────────────────────────────
+function fmt(v, dec = 2) {
+  if (v === null || v === undefined) return '—';
+  const n = parseFloat(v);
+  return isNaN(n) ? '—' : (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(dec);
+}
+function fmtRaw(v, dec = 2) {
+  if (v === null || v === undefined) return '—';
+  const n = parseFloat(v);
+  return isNaN(n) ? '—' : '$' + n.toFixed(dec);
+}
+function el(id) { return document.getElementById(id); }
+function setColor(elem, v) {
+  if (!elem) return;
+  const n = parseFloat(v);
+  elem.classList.remove('text-green-400','text-red-400','text-[var(--foreground)]');
+  if (!isNaN(n) && n > 0) elem.classList.add('text-green-400');
+  else if (!isNaN(n) && n < 0) elem.classList.add('text-red-400');
+  else elem.classList.add('text-[var(--foreground)]');
+}
+function showMsg(boxId, msg, autoHide = 3000) {
+  const b = el(boxId);
+  b.textContent = msg;
+  b.classList.remove('hidden');
+  if (autoHide > 0) setTimeout(() => b.classList.add('hidden'), autoHide);
+}
+function hideMsg(boxId) { el(boxId).classList.add('hidden'); }
+
+// Score dots renderer (e.g., score=4/6 → 4 green dots + 2 grey)
+function scoreDots(score, max) {
+  let html = '';
+  for (let i = 0; i < max; i++) {
+    html += `<span class="score-dot ${i < score ? 'score-filled' : 'score-empty'}"></span>`;
+  }
+  return html;
+}
+
+// ── Main refresh ───────────────────────────────────────
+async function refresh() {
+  try {
+    const r = await fetch(`${API}/status`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+
+    updateConnection(d);
+    updateAccount(d.account, d.daily, d.config);
+    updateBotStatus(d);
+    updateSignals(d.analysis, d.config);
+    updatePositions(d.open_positions || []);
+    updateTrades(d.trades || [], d.trade_count);
+    updateStats(d.stats, d.risk);
+
+    hideMsg('error-box');
+  } catch(e) {
+    el('conn-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+    el('conn-text').textContent = 'تعذر الاتصال بالبوت';
+    showMsg('error-box', '⚠ تعذر الاتصال بخادم البوت. تأكد من تشغيل python main.py', 0);
+  }
+}
+
+// ── Connection badge ───────────────────────────────────
+function updateConnection(d) {
+  const dot  = el('conn-dot');
+  const txt  = el('conn-text');
+  const ts   = el('ts');
+  if (d.connected) {
+    dot.className = 'w-2 h-2 rounded-full bg-green-500';
+    txt.textContent = `متصل · حساب ${d.account?.login || '—'}`;
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-yellow-500';
+    txt.textContent = 'MT5 غير متصل';
+  }
+  ts.textContent = d.timestamp || '—';
+}
+
+// ── Account metrics ────────────────────────────────────
+function updateAccount(acc, daily, cfg) {
+  const bal = el('balance'), eq = el('equity'), prof = el('profit');
+  const dpnl = el('daily-pnl'), dgt = el('daily-goal-txt');
+  const goalBar = el('goal-bar'), goalPct = el('goal-pct'), goalDetail = el('goal-detail');
+
+  if (acc) {
+    bal.textContent = fmtRaw(acc.balance);
+    eq.textContent  = fmtRaw(acc.equity);
+    el('currency').textContent = `USD · ${acc.login || '—'}`;
+
+    const profVal = parseFloat(acc.profit) || 0;
+    prof.textContent = fmt(profVal);
+    setColor(prof, profVal);
+  }
+
+  if (daily) {
+    const pnl = parseFloat(daily.pnl) || 0;
+    dpnl.textContent = fmt(pnl);
+    setColor(dpnl, pnl);
+
+    const goal = parseFloat(daily.goal) || 10;
+    dgt.textContent = `الهدف: $${goal}`;
+
+    const pct = Math.min(Math.max(parseFloat(daily.goal_pct) || 0, 0), 100);
+    goalPct.textContent = `${pct.toFixed(1)}%`;
+    goalBar.style.width = `${pct}%`;
+    goalBar.className = `progress-bar h-3 rounded-full transition-all duration-500 ${
+      pct >= 100 ? 'bg-yellow-400' : pct >= 50 ? 'bg-green-500' : 'bg-blue-500'
+    }`;
+    goalDetail.textContent = `${fmt(pnl)} من $${goal} · ${pct.toFixed(1)}% مكتمل`;
+
+    // Sync settings inputs if not loaded yet
+    if (!_settingsLoaded && cfg) {
+      el('inp-tp').value   = cfg.tp_usd   || 0.5;
+      el('inp-sl').value   = cfg.sl_usd   || 0.5;
+      el('inp-goal').value = cfg.daily_goal || 10;
+      _settingsLoaded = true;
+    }
+  }
+}
+
+// ── Bot status indicator ───────────────────────────────
+function updateBotStatus(d) {
+  const dot = el('bot-dot'), txt = el('bot-status-txt');
+  const status = d.bot_status || 'STOPPED';
+  if (status === 'RUNNING') {
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 pulse';
+    txt.textContent = `البوت يعمل · دورة #${d.loop_count || 0}`;
+    txt.className = 'font-medium text-green-400';
+  } else if (status === 'ERROR') {
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-red-500 pulse';
+    txt.textContent = 'خطأ في البوت';
+    txt.className = 'font-medium text-red-400';
+  } else {
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-gray-400';
+    txt.textContent = 'البوت موقوف';
+    txt.className = 'font-medium text-[var(--muted-foreground)]';
+  }
+
+  if (d.last_error) showMsg('error-box', `⚠ ${d.last_error}`, 0);
+}
+
+// ── Signals cards (v2.0 with score + indicators) ───────
+function updateSignals(analysis, cfg) {
+  const container = el('signals-container');
+  if (!analysis || !Object.keys(analysis).length) {
+    container.innerHTML = '<p class="text-xs text-[var(--muted-foreground)] text-center py-4">لا توجد بيانات تحليل</p>';
+    return;
+  }
+
+  const symbolEmojis = { XAUUSDm: '🏅 الذهب', BTCUSDm: '₿ البيتكوين' };
+  let html = '';
+
+  for (const [sym, a] of Object.entries(analysis)) {
+    if (!a || typeof a !== 'object') continue;
+    const sig    = a.signal || 'WAIT';
+    const score  = a.score  ?? 0;
+    const maxS   = a.max_score ?? 6;
+    const minS   = cfg?.min_score ?? 4;
+    const trend  = a.trend  || '—';
+    const htf    = a.htf_signal || '—';
+    const rsi    = a.rsi  != null ? parseFloat(a.rsi).toFixed(1) : '—';
+    const adx    = a.adx  != null ? parseFloat(a.adx).toFixed(1) : '—';
+    const atr    = a.atr  != null ? parseFloat(a.atr).toFixed(4) : '—';
+    const macd   = a.macd != null ? parseFloat(a.macd).toFixed(5) : '—';
+    const bbMid  = a.bb_mid != null ? parseFloat(a.bb_mid).toFixed(2) : '—';
+    const fEma   = a.fast_ema != null ? parseFloat(a.fast_ema).toFixed(2) : '—';
+    const sEma   = a.slow_ema != null ? parseFloat(a.slow_ema).toFixed(2) : '—';
+
+    const badgeCls = sig === 'BUY' ? 'badge-buy' : sig === 'SELL' ? 'badge-sell' : 'badge-wait';
+    const sigLabel = sig === 'BUY' ? '▲ شراء' : sig === 'SELL' ? '▼ بيع' : '⏸ انتظار';
+    const dots = scoreDots(score, maxS);
+    const label = symbolEmojis[sym] || sym;
+
+    html += `
+    <div class="border border-[var(--border)] rounded-lg p-3">
+      <div class="flex justify-between items-center mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold">${label}</span>
+          <span class="signal-badge ${badgeCls}">${sigLabel}</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <div>${dots}</div>
+          <span class="text-xs font-bold ${score >= minS ? 'text-green-400' : 'text-orange-400'}">${score}/${maxS}</span>
+        </div>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">EMA9 / EMA21</span>
+        <span>${fEma} / ${sEma}</span>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">RSI · ADX</span>
+        <span class="${parseFloat(rsi) > 65 ? 'text-red-400' : parseFloat(rsi) < 35 ? 'text-green-400' : ''}">${rsi}</span>
+        <span class="${parseFloat(adx) > 25 ? 'text-green-400' : 'text-orange-400'}">${adx}</span>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">MACD hist</span>
+        <span class="${parseFloat(macd) > 0 ? 'text-green-400' : parseFloat(macd) < 0 ? 'text-red-400' : ''}">${macd}</span>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">BB Mid · ATR</span>
+        <span>${bbMid}</span>
+        <span class="text-blue-400">${atr}</span>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">M5 Trend · M15 HTF</span>
+        <span class="${trend==='UP'?'text-green-400':trend==='DOWN'?'text-red-400':'text-yellow-400'}">${trend}</span>
+        <span class="${htf==='BUY'?'text-green-400':htf==='SELL'?'text-red-400':'text-yellow-400'}">${htf}</span>
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = html || '<p class="text-xs text-[var(--muted-foreground)] text-center py-4">جاري التحليل…</p>';
+}
+
+// ── Open positions ─────────────────────────────────────
+function updatePositions(positions) {
+  el('pos-count').textContent = positions.length;
+  const list = el('positions-list');
+  if (!positions.length) {
+    list.innerHTML = '<p class="text-[var(--muted-foreground)]">لا توجد صفقات مفتوحة</p>';
+    return;
+  }
+  list.innerHTML = positions.map(p => {
+    const prof = parseFloat(p.profit) || 0;
+    const cls  = prof >= 0 ? 'text-green-400' : 'text-red-400';
+    const typeCls = p.type === 'BUY' ? 'text-green-400' : 'text-red-400';
+    return `<div class="flex justify-between items-center border border-[var(--border)] rounded-lg px-2 py-1.5">
+      <span class="text-[var(--muted-foreground)]">#${p.ticket}</span>
+      <span class="font-semibold">${p.symbol}</span>
+      <span class="${typeCls} font-bold">${p.type}</span>
+      <span class="${cls} font-bold">${fmt(prof)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Trade log ──────────────────────────────────────────
+function updateTrades(trades, totalCount) {
+  el('trade-count').textContent = `${totalCount || trades.length} صفقة`;
+  const tbody  = el('trade-tbody');
+  const noMsg  = el('no-trades');
+
+  // Show newest first
+  const sorted = [...trades].reverse();
+
+  if (!sorted.length) {
+    tbody.innerHTML = '';
+    noMsg.classList.remove('hidden');
+    return;
+  }
+  noMsg.classList.add('hidden');
+
+  tbody.innerHTML = sorted.map(t => {
+    const profit  = t.profit;
+    const isOpen  = t.reason === 'OPENED' || profit === null;
+    const profTxt = isOpen ? '—' : (profit >= 0 ? `+$${parseFloat(profit).toFixed(2)}` : `-$${Math.abs(parseFloat(profit)).toFixed(2)}`);
+    const profCls = isOpen ? '' : (profit >= 0 ? 'text-green-400 font-bold' : 'text-red-400 font-bold');
+    const typeCls = t.type === 'BUY' ? 'text-green-400' : 'text-red-400';
+    const statBadge = isOpen
+      ? '<span class="text-yellow-400">⏳ مفتوحة</span>'
+      : (profit >= 0
+        ? '<span class="text-green-400">✅ مغلوقة</span>'
+        : '<span class="text-red-400">❌ مغلوقة</span>');
+    const timeShort = (t.time || t.close_time || '—').slice(11, 16);
+    const score = t.score != null ? `${t.score}/6` : '—';
+
+    return `<tr class="border-b border-[var(--border)] hover:bg-[var(--border)]/30">
+      <td class="py-2 pr-1 text-[var(--muted-foreground)]">${timeShort}</td>
+      <td class="py-2 font-semibold">${t.symbol || '—'}</td>
+      <td class="py-2 ${typeCls} font-bold">${t.type || '—'}</td>
+      <td class="py-2 text-blue-400">${score}</td>
+      <td class="py-2">${statBadge}</td>
+      <td class="py-2 pl-1 text-left ${profCls}">${profTxt}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Performance stats ──────────────────────────────────
+function updateStats(stats, risk) {
+  if (!stats) return;
+  el('stat-total').textContent   = stats.total_trades ?? '—';
+  el('stat-wins').textContent    = stats.total_wins   ?? '—';
+  el('stat-losses').textContent  = stats.total_losses ?? '—';
+  el('stat-winrate').textContent = stats.win_rate_pct != null ? `${stats.win_rate_pct}%` : '—';
+  el('stat-pf').textContent      = stats.profit_factor != null ? `×${stats.profit_factor}` : '—';
+  if (risk) {
+    const streak = risk.consecutive_losses || 0;
+    el('stat-streak').textContent = streak;
+    el('stat-streak').className = `text-base font-bold ${streak >= 2 ? 'text-red-400 pulse' : 'text-orange-400'}`;
+  }
+}
+
+// ── API actions ────────────────────────────────────────
+async function startBot() {
+  try {
+    el('btn-start').textContent = '…';
+    const r = await fetch(`${API}/start`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const d = await r.json();
+    if (d.status === 'started' || d.status === 'already_running') {
+      showMsg('ok-box', '✅ البوت يعمل الآن!');
+    } else {
+      showMsg('error-box', `⚠ ${d.message || d.status}`, 0);
+    }
+    setTimeout(refresh, 800);
+  } catch(e) {
+    showMsg('error-box', '⚠ تعذر إرسال الأمر للبوت', 0);
+  } finally {
+    el('btn-start').textContent = '▶ تشغيل البوت';
+  }
+}
+
+async function stopBot() {
+  try {
+    el('btn-stop').textContent = '…';
+    await fetch(`${API}/stop`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    showMsg('ok-box', '⏹ البوت متوقف.');
+    setTimeout(refresh, 800);
+  } catch(e) {
+    showMsg('error-box', '⚠ تعذر إيقاف البوت', 0);
+  } finally {
+    el('btn-stop').textContent = '⏹ إيقاف البوت';
+  }
+}
+
+async function saveSettings() {
+  const tp   = parseFloat(el('inp-tp').value);
+  const sl   = parseFloat(el('inp-sl').value);
+  const goal = parseFloat(el('inp-goal').value);
+  if (isNaN(tp) || isNaN(sl) || isNaN(goal)) {
+    showMsg('error-box', '⚠ أدخل قيم صحيحة للإعدادات', 3000);
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/settings`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ tp_usd: tp, sl_usd: sl, daily_goal: goal }),
+    });
+    const d = await r.json();
+    showMsg('ok-box', '✅ تم حفظ الإعدادات بنجاح!');
+    setTimeout(refresh, 500);
+  } catch(e) {
+    showMsg('error-box', '⚠ تعذر حفظ الإعدادات', 0);
+  }
+}
+
+// ── Auto-refresh every 5 seconds ──────────────────────
+function startPolling() {
+  refresh();
+  if (_refreshTimer) clearInterval(_refreshTimer);
+  _refreshTimer = setInterval(refresh, 5000);
+}
+
+// ── Init ───────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', startPolling);
+</script>
+</body>
+</html>
