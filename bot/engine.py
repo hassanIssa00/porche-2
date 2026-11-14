@@ -223,6 +223,19 @@ class ScalperEngine:
 
         logger.info("Bot loop terminated.")
 
+    def _update_all_analysis(self):
+        """Always refresh technical analysis for all symbols so dashboard is continuously live."""
+        for symbol in config.SYMBOLS:
+            try:
+                candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
+                htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
+                if candles and len(candles) >= config.CANDLES_NEEDED:
+                    result = analysis.analyze(candles, htf_candles=htf_candles)
+                    self.last_signal[symbol] = result.get("signal", "WAIT")
+                    self.last_analysis[symbol] = result
+            except Exception as exc:
+                logger.warning("[%s] Failed to analyze: %s", symbol, exc)
+
     def _tick(self):
         if not mt5bridge.is_connected():
             if not mt5bridge.connect():
@@ -231,12 +244,15 @@ class ScalperEngine:
                 return
             self.status = "RUNNING"
 
-        # 1. Sync closed deals from MT5 history
+        # 1. Continuous Market Analysis for ALL active symbols
+        self._update_all_analysis()
+
+        # 2. Sync closed deals from MT5 history
         self._sync_closed_trades()
 
         daily_pnl = self._calc_daily_pnl()
 
-        # 2. Strict Daily Loss Guard
+        # 3. Strict Daily Loss Guard
         if daily_pnl <= -config.MAX_DAILY_LOSS_USD:
             logger.warning("Daily loss limit reached ($%.2f / $%.2f). Pausing entries.",
                            abs(daily_pnl), config.MAX_DAILY_LOSS_USD)
@@ -324,8 +340,16 @@ class ScalperEngine:
         point = float(getattr(sym_info, "point", 0.001))
         digits = int(getattr(sym_info, "digits", 3))
 
-        # Add small buffer in profit direction
-        buffer_pts = 30
+        # Calculate buffer in profit direction based on BREAKEVEN_LOCK_USD
+        tick_value = float(getattr(sym_info, "trade_tick_value", 0.0))
+        tick_size = float(getattr(sym_info, "trade_tick_size", point))
+        if tick_value <= 0 or tick_size <= 0:
+            tick_value, tick_size = 1.0, point
+        val_per_point = (tick_value / tick_size) * point * float(pos.get("volume", config.LOT_SIZE))
+        if val_per_point <= 0:
+            val_per_point = 0.001
+
+        buffer_pts = max(10, int(config.BREAKEVEN_LOCK_USD / val_per_point))
         if pos_type == "BUY":
             new_sl = round(entry + buffer_pts * point, digits)
         else:
@@ -526,7 +550,7 @@ class ScalperEngine:
 
     def _in_session(self, symbol: str) -> bool:
         utc_hour = datetime.datetime.utcnow().hour
-        sessions = config.GOLD_SESSIONS if symbol.upper().startswith("XAU") else config.BTC_SESSIONS
+        sessions = getattr(config, "GOLD_SESSIONS", [(7, 21)]) if symbol.upper().startswith("XAU") else getattr(config, "BTC_SESSIONS", [(0, 24)])
         for s_h, e_h in sessions:
             if s_h <= utc_hour < e_h:
                 return True

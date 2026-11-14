@@ -19,30 +19,31 @@ MCP_SERVER_DIR: str = r"C:\Users\hassa\Desktop\all project\mcp forex"
 
 
 # ──────────────────────────────────────────────────────────
-# Symbols to trade (Gold + Bitcoin)
+# Symbols to trade (Bitcoin Only — تم إلغاء الذهب تماماً)
 # ──────────────────────────────────────────────────────────
-SYMBOLS: list[str] = ["XAUUSDm", "BTCUSDm"]   # Exness broker suffix
+SYMBOLS: list[str] = ["BTCUSDm"]   # Exness broker suffix
 
 
 # ──────────────────────────────────────────────────────────
 # Trade sizing & realistic profit/loss targets per trade
-# حجم الصفقة وأهداف ربح ووقف واقعية تتجاوز السبريد
+# حجم الصفقة وأهداف ربح ووقف واقعية للبيتكوين
 # ──────────────────────────────────────────────────────────
 LOT_SIZE: float = 0.01            # Minimum lot
 
-# Target profit: $3.00 (gives room for gold/btc moves, far exceeds $0.24 spread)
-TAKE_PROFIT_USD: float = 3.00
+# Target profit: $3.50 ($350 حركة في سعر البيتكوين — ربح حقيقي محترم)
+TAKE_PROFIT_USD: float = 3.50
 
-# Stop loss: $2.50 (allows market breathing room — won't be stopped by 20-cent noise)
-STOP_LOSS_USD: float = 2.50
+# Stop loss: $1.80 ($180 حركة في سعر البيتكوين — خسارة محدودة ومتحكم بها)
+STOP_LOSS_USD: float = 1.80
 
-# Breakeven trigger: when profit reaches +$1.50, move SL to breakeven + $0.30
-BREAKEVEN_TRIGGER_USD: float = 1.50
-BREAKEVEN_LOCK_USD: float = 0.30
+# Breakeven protection: when profit reaches +$1.80, lock +$0.80 profit!
+# حجز أرباح حقيقي عند 80 سنت وليس 20 سنت تافهة
+BREAKEVEN_TRIGGER_USD: float = 1.80
+BREAKEVEN_LOCK_USD: float = 0.80
 
 # Fallback SL/TP points for MT5 order
-SL_POINTS: int = 500
-TP_POINTS: int = 600
+SL_POINTS: int = 18000
+TP_POINTS: int = 35000
 
 
 # ──────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ TP_POINTS: int = 600
 MAX_OPEN_POSITIONS: int = 1
 
 # Cooldown after closing a trade before opening a new one (seconds)
-TRADE_COOLDOWN_SEC: int = 180     # 3 minutes cooldown
+TRADE_COOLDOWN_SEC: int = 120     # 2 minutes cooldown
 
 
 # ──────────────────────────────────────────────────────────
@@ -74,8 +75,8 @@ HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score required (out of 6)
-MIN_SIGNAL_SCORE: int = 4
+# Confluence score required (out of 6 — دخول قوي فقط)
+MIN_SIGNAL_SCORE: int = 5
 
 # Indicator settings
 MACD_FAST: int     = 12
@@ -85,7 +86,7 @@ BB_PERIOD: int     = 20
 BB_STD: float      = 2.0
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 20.0         # Minimum trend strength
+ADX_MIN: float     = 18.0         # Minimum trend strength (يمنع التداول أثناء التذبذب المسطح)
 
 
 # ──────────────────────────────────────────────────────────
@@ -103,8 +104,7 @@ AUTO_PAUSE_ON_DAILY_LOSS: bool = True   # MUST be True to protect capital
 # Sessions & timing
 # ──────────────────────────────────────────────────────────
 SESSION_FILTER_ENABLED: bool = True
-GOLD_SESSIONS: list = [(7, 21)]   # Active market hours UTC
-BTC_SESSIONS:  list = [(0, 24)]
+BTC_SESSIONS:  list = [(0, 24)]   # Bitcoin trades 24/7
 
-SCAN_INTERVAL_SEC: int = 5        # Scan loop interval (seconds)
+SCAN_INTERVAL_SEC: int = 3        # Scan loop interval (seconds)
 MAGIC_NUMBER:      int = 998877   # Bot trade identifier

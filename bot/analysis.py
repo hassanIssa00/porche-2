@@ -257,6 +257,37 @@ def analyze(
             s_score += 1
             s_reasons.append(f"MACD{macd_hist:.4f}")
 
+    # ── HARD FILTER 1: Macro HTF Trend Alignment ────────────
+    # In Bitcoin, NEVER enter counter-trend against M15!
+    if htf_signal == SIGNAL_SELL:
+        b_score = 0
+        b_reasons = ["Blocked by M15 Macro Downtrend"]
+    elif htf_signal == SIGNAL_BUY:
+        s_score = 0
+        s_reasons = ["Blocked by M15 Macro Uptrend"]
+
+    trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
+
+    # ── HARD FILTER 2: Chop / Consolidation Guard (ADX) ────
+    # If ADX is weak, the market is in a choppy flat range — DO NOT TRADE
+    min_adx = getattr(config, "ADX_MIN", 18.0)
+    if adx_val is not None and adx_val < min_adx:
+        return {
+            "signal":       SIGNAL_WAIT,
+            "score":        max(b_score, s_score),
+            "max_score":    6,
+            "reason":       f"WAIT — فلتر التذبذب: السوق متذبذب بدون اتجاه واضح (ADX={adx_val:.1f} < {min_adx})",
+            "fast_ema":     round(fast_ema, 5),
+            "slow_ema":     round(slow_ema, 5),
+            "rsi":          rsi_val,
+            "macd":         macd_hist,
+            "adx":          adx_val,
+            "atr":          atr_val,
+            "trend":        trend_str,
+            "htf_signal":   htf_signal,
+            "candles_used": len(candles),
+        }
+
     threshold = config.MIN_SIGNAL_SCORE
 
     if b_score >= threshold and b_score > s_score:
@@ -271,8 +302,6 @@ def analyze(
         signal = SIGNAL_WAIT
         score = max(b_score, s_score)
         reason = f"WAIT — BUY:{b_score}/6 SELL:{s_score}/6 (need ≥{threshold}/6)"
-
-    trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
 
     return {
         "signal":       signal,
