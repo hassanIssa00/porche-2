@@ -1,16 +1,14 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v4.2 — Smart Confluence Scalper
-  محرك التحليل الذكي — كل الإشارات لازم تتفق
+  ISSSSMAIL SCALPER BOT v5.0 — Fast M1 Analysis Engine
+  محرك التحليل السريع — سكالبينج لحظي على فريم الدقيقة M1
 =============================================================
 
-Strategy: 4/4 Confluence Required
-  1. M5 trend direction (EMA 20 vs EMA 50) — الاتجاه العام
-  2. M1 EMA cross (EMA 9 vs EMA 21) — نفس اتجاه M5
-  3. RSI momentum — فوق 50 لـ BUY، تحت 50 لـ SELL
-  4. MACD histogram — موجب لـ BUY، سالب لـ SELL
-
-  كل الـ 4 لازم يتفقوا — مفيش صفقات نص نص
+Rules for M1 Scalping:
+  1. Direction follows immediate M1 EMA 7 / EMA 20 momentum.
+  2. Trade BOTH BUY and SELL freely with the market waves.
+  3. Strict RSI boundary guard: prevents buying at tops (>75) or selling at bottoms (<25).
+  4. Instant entry when 3/3 conditions align.
 """
 
 import logging
@@ -26,7 +24,7 @@ SIGNAL_WAIT = "WAIT"
 
 
 # ══════════════════════════════════════════════════════════
-# TECHNICAL INDICATORS
+# TECHNICAL INDICATORS (Pure Python)
 # ══════════════════════════════════════════════════════════
 
 def _ema(closes: list[float], period: int) -> list[float]:
@@ -144,7 +142,7 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
 
 
 # ══════════════════════════════════════════════════════════
-# MAIN ANALYSIS — Smart Confluence v4.2
+# MAIN M1 SCALPING ANALYSIS
 # ══════════════════════════════════════════════════════════
 
 def analyze(
@@ -152,8 +150,8 @@ def analyze(
     htf_candles: Optional[list[dict]] = None,
 ) -> dict:
     """
-    Smart confluence: ALL 4 conditions must agree.
-    No more half-signals. Quality over quantity.
+    Rapid M1 Micro-Scalping Analysis.
+    Triggers fast BUY and SELL signals directly on M1 price action.
     """
     if len(candles) < config.CANDLES_NEEDED:
         return _wait(f"Need {config.CANDLES_NEEDED} candles, got {len(candles)}")
@@ -161,10 +159,11 @@ def analyze(
     closes = [float(c["close"]) for c in candles]
     highs  = [float(c["high"])  for c in candles]
     lows   = [float(c["low"])   for c in candles]
+    opens  = [float(c["open"])  for c in candles]
 
-    # ── M1 Indicators ─────────────────────────────────────
-    fast_ema_list = _ema(closes, config.TREND_FAST_EMA)   # EMA 9
-    slow_ema_list = _ema(closes, config.TREND_SLOW_EMA)   # EMA 21
+    # Calculate M1 Indicators
+    fast_ema_list = _ema(closes, config.TREND_FAST_EMA)   # EMA 7
+    slow_ema_list = _ema(closes, config.TREND_SLOW_EMA)   # EMA 20
     if not fast_ema_list or not slow_ema_list:
         return _wait("EMA calculation failed")
 
@@ -176,131 +175,81 @@ def analyze(
     adx_val  = _adx(highs, lows, closes, config.ADX_PERIOD)
     _, _, macd_hist = _macd(closes, config.MACD_FAST, config.MACD_SLOW, config.MACD_SIGNAL)
 
-    # ── M5 Trend Direction (HTF) ───────────────────────────
+    last_close = closes[-1]
+    last_open  = opens[-1]
+
+    # HTF M5 indicator for info only
     htf_signal = SIGNAL_WAIT
-    if htf_candles and len(htf_candles) >= config.HTF_CANDLES:
+    if htf_candles and len(htf_candles) >= getattr(config, "HTF_CANDLES", 30):
         htf_closes = [float(c["close"]) for c in htf_candles]
-        h_fast = _ema(htf_closes, config.HTF_FAST_EMA)
-        h_slow = _ema(htf_closes, config.HTF_SLOW_EMA)
+        h_fast = _ema(htf_closes, getattr(config, "HTF_FAST_EMA", 20))
+        h_slow = _ema(htf_closes, getattr(config, "HTF_SLOW_EMA", 50))
         if h_fast and h_slow:
             if h_fast[-1] > h_slow[-1]:
                 htf_signal = SIGNAL_BUY
             elif h_fast[-1] < h_slow[-1]:
                 htf_signal = SIGNAL_SELL
 
-    # ── Chop Filter ────────────────────────────────────────
-    min_adx = getattr(config, "ADX_MIN", 20.0)
-    if adx_val is not None and adx_val < min_adx:
-        return _wait_detail(
-            f"WAIT — سوق متذبذب (ADX={adx_val:.1f} < {min_adx})",
-            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
-        )
-
     # ══════════════════════════════════════════════════════
-    # SMART SCORING: كل شرط مستقل — 4 شروط / 4 نقاط
-    # الفرق: RSI فوق 50 = UP فقط، تحت 50 = DOWN فقط
+    # FAST SCALPING CONFLUENCE (3 Points)
     # ══════════════════════════════════════════════════════
-
     b_score, s_score = 0, 0
     b_reasons, s_reasons = [], []
 
-    # ── شرط 1: M5 الاتجاه العام ──────────────────────────
-    if htf_signal == SIGNAL_BUY:
-        b_score += 1
-        b_reasons.append("M5 ↑ (BUY)")
-    elif htf_signal == SIGNAL_SELL:
-        s_score += 1
-        s_reasons.append("M5 ↓ (SELL)")
-    else:
-        # M5 مش واضح — استنى
-        return _wait_detail(
-            "WAIT — M5 بدون اتجاه واضح",
-            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
-        )
-
-    # ── شرط 2: M1 EMA اتجاه (لازم يوافق M5) ─────────────
+    # 1. M1 EMA Momentum
     if fast_ema > slow_ema:
         b_score += 1
-        b_reasons.append(f"M1 EMA9({fast_ema:.0f}) > EMA21({slow_ema:.0f}) ↑")
+        b_reasons.append(f"M1 EMA7({fast_ema:.1f}) > EMA20({slow_ema:.1f}) ↑")
     elif fast_ema < slow_ema:
         s_score += 1
-        s_reasons.append(f"M1 EMA9({fast_ema:.0f}) < EMA21({slow_ema:.0f}) ↓")
-    else:
-        # EMA متساوية — مفيش اتجاه
-        pass
+        s_reasons.append(f"M1 EMA7({fast_ema:.1f}) < EMA20({slow_ema:.1f}) ↓")
 
-    # ── شرط 3: RSI — فوق 55 صعود، تحت 45 هبوط ──────────
+    # 2. Candle Price Action Confirmation
+    if last_close >= fast_ema or last_close >= last_open:
+        b_score += 1
+        b_reasons.append("Bullish candle momentum ↑")
+    if last_close <= fast_ema or last_close <= last_open:
+        s_score += 1
+        s_reasons.append("Bearish candle momentum ↓")
+
+    # 3. RSI Active Zone (Avoid tops/bottoms)
     if rsi_val is not None:
-        if rsi_val > 55:
+        if 46.0 <= rsi_val <= 75.0:
             b_score += 1
-            b_reasons.append(f"RSI={rsi_val} > 55 (bullish)")
-        elif rsi_val < 45:
+            b_reasons.append(f"RSI={rsi_val} (bullish zone)")
+        if 25.0 <= rsi_val <= 54.0:
             s_score += 1
-            s_reasons.append(f"RSI={rsi_val} < 45 (bearish)")
-        else:
-            b_reasons.append(f"RSI={rsi_val} (محايد 45-55)")
-            s_reasons.append(f"RSI={rsi_val} (محايد 45-55)")
+            s_reasons.append(f"RSI={rsi_val} (bearish zone)")
 
-    # ── شرط 4: MACD Histogram — موجب لـ BUY، سالب لـ SELL ─
+    # 4. Optional MACD Direction Check
     if macd_hist is not None:
-        if macd_hist > 0:
-            b_score += 1
-            b_reasons.append(f"MACD +{macd_hist:.2f} (bullish)")
-        elif macd_hist < 0:
-            s_score += 1
-            s_reasons.append(f"MACD {macd_hist:.2f} (bearish)")
-        else:
-            b_reasons.append("MACD = 0 (no momentum)")
-            s_reasons.append("MACD = 0 (no momentum)")
+        if macd_hist >= -1.0:
+            b_reasons.append(f"MACD {macd_hist:+.2f}")
+        if macd_hist <= 1.0:
+            s_reasons.append(f"MACD {macd_hist:+.2f}")
 
-    # ══════════════════════════════════════════════════════
-    # HARD RULE: M5 و M1 لازم يتفقوا
-    # استثناء: لو الفرق بين EMA9 و EMA21 كبير جداً = تعارض حقيقي
-    # لو الفرق صغير (< 100 نقطة) = السوق بيتحول = نسمح بالدخول
-    # ══════════════════════════════════════════════════════
-    ema_gap = abs(fast_ema - slow_ema)
-    strong_conflict = ema_gap > 100  # فرق أكبر من 100$ = تعارض حقيقي
-
-    m1_up   = fast_ema > slow_ema
-    m1_down = fast_ema < slow_ema
-
-    if htf_signal == SIGNAL_SELL and m1_up and strong_conflict:
-        return _wait_detail(
-            f"WAIT — تعارض قوي: M5 هبوط vs M1 صعود (فرق EMA={ema_gap:.0f}$) — انتظر",
-            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
-        )
-
-    if htf_signal == SIGNAL_BUY and m1_down and strong_conflict:
-        return _wait_detail(
-            f"WAIT — تعارض قوي: M5 صعود vs M1 هبوط (فرق EMA={ema_gap:.0f}$) — انتظر",
-            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
-        )
-
-    # ══════════════════════════════════════════════════════
-    # القرار النهائي — 4/4 مطلوب (كل الشروط)
-    # ══════════════════════════════════════════════════════
-    threshold = config.MIN_SIGNAL_SCORE  # = 4
+    threshold = config.MIN_SIGNAL_SCORE  # = 3
 
     trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
 
-    if b_score >= threshold:
+    if b_score >= threshold and b_score > s_score:
         signal = SIGNAL_BUY
         score  = b_score
-        reason = f"BUY {b_score}/4 ✅ | " + " | ".join(b_reasons)
-    elif s_score >= threshold:
+        reason = f"BUY {b_score}/3 🚀 | " + " | ".join(b_reasons)
+    elif s_score >= threshold and s_score > b_score:
         signal = SIGNAL_SELL
         score  = s_score
-        reason = f"SELL {s_score}/4 ✅ | " + " | ".join(s_reasons)
+        reason = f"SELL {s_score}/3 🔻 | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
         score  = max(b_score, s_score)
-        dir_b  = " | ".join(b_reasons) if b_score > s_score else " | ".join(s_reasons)
-        reason = f"WAIT — {max(b_score,s_score)}/4 (محتاج {threshold}/4) | {dir_b}"
+        detail = " | ".join(b_reasons) if b_score > s_score else " | ".join(s_reasons)
+        reason = f"WAIT ({max(b_score, s_score)}/3) | {detail}"
 
     return {
         "signal":       signal,
         "score":        score,
-        "max_score":    4,
+        "max_score":    3,
         "reason":       reason,
         "fast_ema":     round(fast_ema, 2),
         "slow_ema":     round(slow_ema, 2),
@@ -315,28 +264,11 @@ def analyze(
     }
 
 
-# ══════════════════════════════════════════════════════════
-# HELPERS
-# ══════════════════════════════════════════════════════════
-
 def _wait(reason: str) -> dict:
     return {
-        "signal": SIGNAL_WAIT, "score": 0, "max_score": 4,
+        "signal": SIGNAL_WAIT, "score": 0, "max_score": 3,
         "reason": reason, "fast_ema": None, "slow_ema": None,
         "rsi": None, "macd": None, "adx": None, "atr": None,
         "trend": "FLAT", "htf_signal": SIGNAL_WAIT,
         "dynamic_tp": None, "candles_used": 0,
-    }
-
-
-def _wait_detail(reason, fe, se, rsi, macd, adx, atr, htf, used) -> dict:
-    trend = "UP" if (fe and se and fe > se) else ("DOWN" if (fe and se and fe < se) else "FLAT")
-    return {
-        "signal": SIGNAL_WAIT, "score": 0, "max_score": 4,
-        "reason": reason,
-        "fast_ema": round(fe, 2) if fe else None,
-        "slow_ema": round(se, 2) if se else None,
-        "rsi": rsi, "macd": macd, "adx": adx, "atr": atr,
-        "trend": trend, "htf_signal": htf,
-        "dynamic_tp": atr, "candles_used": used,
     }

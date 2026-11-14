@@ -51,7 +51,7 @@
         <div class="text-2xl">📊</div>
         <div>
           <h1 class="text-xl font-bold text-[var(--foreground)]">ISSSSMAIL Scalper Bot</h1>
-          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · سكالبر ذكي <span class="text-green-400 font-bold">v3.5 (Bitcoin Pro)</span></p>
+          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · سكالبر فائق السرعة <span class="text-green-400 font-bold">v5.0 (M1 Scalper 24/7)</span></p>
         </div>
       </div>
       <div class="text-left">
@@ -81,22 +81,17 @@
         <p class="text-xs text-[var(--muted-foreground)]">Floating P&amp;L</p>
       </div>
       <div class="metric-card bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
-        <p class="text-xs text-[var(--muted-foreground)] mb-1">ربح اليوم</p>
+        <p class="text-xs text-[var(--muted-foreground)] mb-1">ربح اليوم الحقيقي</p>
         <p id="daily-pnl" class="text-xl font-bold">—</p>
-        <p id="daily-goal-txt" class="text-xs text-[var(--muted-foreground)]">الهدف: —</p>
+        <p id="daily-goal-txt" class="text-xs text-green-400 font-semibold">تداول مستمر 24/7</p>
       </div>
     </div>
 
-    <!-- DAILY GOAL PROGRESS -->
-    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 mb-4">
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-sm font-semibold">تقدم الهدف اليومي</span>
-        <span id="goal-pct" class="text-sm font-bold text-[var(--primary)]">0%</span>
-      </div>
-      <div class="w-full bg-[var(--border)] rounded-full h-3 overflow-hidden">
-        <div id="goal-bar" class="progress-bar h-3 rounded-full bg-green-500 transition-all duration-500" style="width:0%"></div>
-      </div>
-      <p id="goal-detail" class="text-xs text-[var(--muted-foreground)] mt-1 text-left">$0.00 من $10 · 0% مكتمل</p>
+    <!-- DAILY GOAL PROGRESS (HIDDEN FOR 24/7 OPERATION) -->
+    <div style="display:none;">
+      <div id="goal-pct"></div>
+      <div id="goal-bar"></div>
+      <div id="goal-detail"></div>
     </div>
 
     <!-- PERFORMANCE STATS (new in v2.0) -->

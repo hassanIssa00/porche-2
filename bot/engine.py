@@ -273,19 +273,10 @@ class ScalperEngine:
         if len(open_positions_fresh) >= config.MAX_OPEN_POSITIONS:
             return  # Wait until current trade finishes
 
-        # Check cooldown — with consecutive loss multiplier
+        # Check cooldown — rapid scalping (e.g. 20s)
         time_since_close = time.time() - self._last_close_time
-        # After 2+ consecutive losses, double the cooldown (wait more)
-        effective_cooldown = config.TRADE_COOLDOWN_SEC
-        if self._consecutive_losses >= 4:
-            effective_cooldown = config.TRADE_COOLDOWN_SEC * 5  # 10 minutes
-            logger.warning("4+ consecutive losses — extended cooldown active (%ds)", effective_cooldown)
-        elif self._consecutive_losses >= 2:
-            effective_cooldown = config.TRADE_COOLDOWN_SEC * 2  # 4 minutes
-            logger.info("2+ consecutive losses — doubled cooldown (%ds)", effective_cooldown)
-
-        if self._last_close_time > 0 and time_since_close < effective_cooldown:
-            logger.debug("Cooldown active: %ds remaining", int(effective_cooldown - time_since_close))
+        if self._last_close_time > 0 and time_since_close < config.TRADE_COOLDOWN_SEC:
+            logger.debug("Cooldown active: %ds remaining", int(config.TRADE_COOLDOWN_SEC - time_since_close))
             return
 
         # Try to find a high-probability trade
@@ -334,7 +325,7 @@ class ScalperEngine:
                 self._breakeven_set.pop(ticket, None)
                 self._last_close_time = time.time()
                 self._record_closed_trade(pos, profit, reason)
-                logger.info("Position #%d closed. Starting 3-minute cooldown.", ticket)
+                logger.info("Position #%d closed. Starting %ds cooldown.", ticket, config.TRADE_COOLDOWN_SEC)
             else:
                 logger.warning("Failed to close position #%d: %s", ticket, res.get("error"))
 
@@ -362,10 +353,16 @@ class ScalperEngine:
             val_per_point = 0.001
 
         buffer_pts = max(10, int(config.BREAKEVEN_LOCK_USD / val_per_point))
+        tick = mt5bridge.get_tick(symbol)
+
         if pos_type == "BUY":
             new_sl = round(entry + buffer_pts * point, digits)
+            if tick and new_sl >= tick["bid"]:
+                new_sl = round(tick["bid"] - 10 * point, digits)
         else:
             new_sl = round(entry - buffer_pts * point, digits)
+            if tick and new_sl <= tick["ask"]:
+                new_sl = round(tick["ask"] + 10 * point, digits)
 
         req = {
             "action": mt5.TRADE_ACTION_SLTP,
