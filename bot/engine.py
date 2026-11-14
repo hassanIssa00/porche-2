@@ -67,6 +67,9 @@ class ScalperEngine:
         # Breakeven tracking per ticket {ticket: bool}
         self._breakeven_set: dict[int, bool] = {}
 
+        # Consecutive loss protection
+        self._consecutive_losses: int = 0
+
         self._state = _load_state()
         if self._state.get("session_start") is None:
             self._state["session_start"] = datetime.datetime.now().isoformat()
@@ -270,10 +273,19 @@ class ScalperEngine:
         if len(open_positions_fresh) >= config.MAX_OPEN_POSITIONS:
             return  # Wait until current trade finishes
 
-        # Check cooldown
+        # Check cooldown — with consecutive loss multiplier
         time_since_close = time.time() - self._last_close_time
-        if self._last_close_time > 0 and time_since_close < config.TRADE_COOLDOWN_SEC:
-            logger.debug("Cooldown active: %ds remaining", int(config.TRADE_COOLDOWN_SEC - time_since_close))
+        # After 2+ consecutive losses, double the cooldown (wait more)
+        effective_cooldown = config.TRADE_COOLDOWN_SEC
+        if self._consecutive_losses >= 4:
+            effective_cooldown = config.TRADE_COOLDOWN_SEC * 5  # 10 minutes
+            logger.warning("4+ consecutive losses — extended cooldown active (%ds)", effective_cooldown)
+        elif self._consecutive_losses >= 2:
+            effective_cooldown = config.TRADE_COOLDOWN_SEC * 2  # 4 minutes
+            logger.info("2+ consecutive losses — doubled cooldown (%ds)", effective_cooldown)
+
+        if self._last_close_time > 0 and time_since_close < effective_cooldown:
+            logger.debug("Cooldown active: %ds remaining", int(effective_cooldown - time_since_close))
             return
 
         # Try to find a high-probability trade
@@ -522,9 +534,13 @@ class ScalperEngine:
         if profit >= 0:
             stats["total_wins"] = stats.get("total_wins", 0) + 1
             stats["total_profit"] = stats.get("total_profit", 0.0) + profit
+            self._consecutive_losses = 0   # reset on win
         else:
             stats["total_losses"] = stats.get("total_losses", 0) + 1
             stats["total_loss"] = stats.get("total_loss", 0.0) + abs(profit)
+            self._consecutive_losses += 1
+            if self._consecutive_losses >= 2:
+                logger.warning("Consecutive losses: %d — cooldown extended!", self._consecutive_losses)
 
     def _calc_daily_pnl(self) -> float:
         trades = self._state.get("trades", [])

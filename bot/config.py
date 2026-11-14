@@ -59,7 +59,7 @@ TP_POINTS: int = 10000
 # Frequency & cooldown
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 60      # 60 ثانية كول داون بين الصفقات
+TRADE_COOLDOWN_SEC: int = 120     # دقيقتين كول داون بين الصفقات
 
 
 # ──────────────────────────────────────────────────────────
@@ -79,8 +79,8 @@ HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score — 3 من 4 شروط كافية
-MIN_SIGNAL_SCORE: int = 3
+# Confluence score — 4/4 مطلوب (كل الشروط لازم تتفق)
+MIN_SIGNAL_SCORE: int = 4
 
 # Indicators
 MACD_FAST: int     = 12
@@ -90,7 +90,7 @@ BB_PERIOD: int     = 20
 BB_STD: float      = 2.0
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 15.0        # فلتر خفيف فقط للتذبذب الشديد
+ADX_MIN: float     = 20.0        # لازم يكون في اتجاه (مش تذبذب)
 
 
 # ──────────────────────────────────────────────────────────

@@ -1,18 +1,18 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v4.0 — Analysis Engine
-  محرك التحليل — سكالبينج سريع M1 + تأكيد M5
+  ISSSSMAIL SCALPER BOT v4.2 — Smart Confluence Scalper
+  محرك التحليل الذكي — كل الإشارات لازم تتفق
 =============================================================
 
-Strategy: EMA Cross + RSI Momentum + M5 Trend Filter
+Strategy: 4/4 Confluence Required
   1. M5 trend direction (EMA 20 vs EMA 50) — الاتجاه العام
-  2. M1 EMA cross (EMA 9 vs EMA 21) — نقطة الدخول
-  3. RSI momentum confirmation — تأكيد الزخم
-  4. Candle body confirmation — تأكيد الشمعة
-  Score 3/4 required to enter trade
+  2. M1 EMA cross (EMA 9 vs EMA 21) — نفس اتجاه M5
+  3. RSI momentum — فوق 50 لـ BUY، تحت 50 لـ SELL
+  4. MACD histogram — موجب لـ BUY، سالب لـ SELL
+
+  كل الـ 4 لازم يتفقوا — مفيش صفقات نص نص
 """
 
-import math
 import logging
 from typing import Optional
 
@@ -144,7 +144,7 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
 
 
 # ══════════════════════════════════════════════════════════
-# MAIN ANALYSIS — Scalping v4.0
+# MAIN ANALYSIS — Smart Confluence v4.2
 # ══════════════════════════════════════════════════════════
 
 def analyze(
@@ -152,9 +152,8 @@ def analyze(
     htf_candles: Optional[list[dict]] = None,
 ) -> dict:
     """
-    Fast scalping analysis — M1 entries, M5 trend filter.
-    4 conditions, need 3/4 to enter.
-    Returns dynamic TP suggestion based on ATR.
+    Smart confluence: ALL 4 conditions must agree.
+    No more half-signals. Quality over quantity.
     """
     if len(candles) < config.CANDLES_NEEDED:
         return _wait(f"Need {config.CANDLES_NEEDED} candles, got {len(candles)}")
@@ -162,7 +161,6 @@ def analyze(
     closes = [float(c["close"]) for c in candles]
     highs  = [float(c["high"])  for c in candles]
     lows   = [float(c["low"])   for c in candles]
-    opens  = [float(c["open"])  for c in candles]
 
     # ── M1 Indicators ─────────────────────────────────────
     fast_ema_list = _ema(closes, config.TREND_FAST_EMA)   # EMA 9
@@ -172,20 +170,13 @@ def analyze(
 
     fast_ema = fast_ema_list[-1]
     slow_ema = slow_ema_list[-1]
-    # Previous bar EMAs for crossover detection
-    prev_fast = fast_ema_list[-2] if len(fast_ema_list) >= 2 else fast_ema
-    prev_slow = slow_ema_list[-2] if len(slow_ema_list) >= 2 else slow_ema
 
     rsi_val  = _rsi(closes, config.RSI_PERIOD)
     atr_val  = _atr(highs, lows, closes, config.ATR_PERIOD)
     adx_val  = _adx(highs, lows, closes, config.ADX_PERIOD)
     _, _, macd_hist = _macd(closes, config.MACD_FAST, config.MACD_SLOW, config.MACD_SIGNAL)
 
-    last_close = closes[-1]
-    last_open  = opens[-1]
-    prev_close = closes[-2] if len(closes) >= 2 else last_close
-
-    # ── M5 Trend Direction ────────────────────────────────
+    # ── M5 Trend Direction (HTF) ───────────────────────────
     htf_signal = SIGNAL_WAIT
     if htf_candles and len(htf_candles) >= config.HTF_CANDLES:
         htf_closes = [float(c["close"]) for c in htf_candles]
@@ -197,132 +188,153 @@ def analyze(
             elif h_fast[-1] < h_slow[-1]:
                 htf_signal = SIGNAL_SELL
 
-    # ── Chop Filter: skip if market is flat/choppy ────────
-    min_adx = getattr(config, "ADX_MIN", 15.0)
+    # ── Chop Filter ────────────────────────────────────────
+    min_adx = getattr(config, "ADX_MIN", 20.0)
     if adx_val is not None and adx_val < min_adx:
-        return {
-            "signal":     SIGNAL_WAIT,
-            "score":      0,
-            "max_score":  4,
-            "reason":     f"WAIT — سوق متذبذب (ADX={adx_val:.1f} < {min_adx})",
-            "fast_ema":   round(fast_ema, 5),
-            "slow_ema":   round(slow_ema, 5),
-            "rsi":        rsi_val,
-            "macd":       macd_hist,
-            "adx":        adx_val,
-            "atr":        atr_val,
-            "trend":      "FLAT",
-            "htf_signal": htf_signal,
-            "dynamic_tp": None,
-            "candles_used": len(candles),
-        }
+        return _wait_detail(
+            f"WAIT — سوق متذبذب (ADX={adx_val:.1f} < {min_adx})",
+            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
+        )
 
-    # ── Scoring: 4 conditions ─────────────────────────────
+    # ══════════════════════════════════════════════════════
+    # SMART SCORING: كل شرط مستقل — 4 شروط / 4 نقاط
+    # الفرق: RSI فوق 50 = UP فقط، تحت 50 = DOWN فقط
+    # ══════════════════════════════════════════════════════
+
     b_score, s_score = 0, 0
     b_reasons, s_reasons = [], []
 
-    # 1. M5 Trend alignment (most important)
+    # ── شرط 1: M5 الاتجاه العام ──────────────────────────
     if htf_signal == SIGNAL_BUY:
         b_score += 1
-        b_reasons.append("M5 Trend: UP ↑")
+        b_reasons.append("M5 ↑ (BUY)")
     elif htf_signal == SIGNAL_SELL:
         s_score += 1
-        s_reasons.append("M5 Trend: DOWN ↓")
+        s_reasons.append("M5 ↓ (SELL)")
+    else:
+        # M5 مش واضح — استنى
+        return _wait_detail(
+            "WAIT — M5 بدون اتجاه واضح",
+            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
+        )
 
-    # 2. M1 EMA Cross (fresh cross = stronger signal)
-    ema_cross_up   = prev_fast <= prev_slow and fast_ema > slow_ema   # Golden cross
-    ema_cross_down = prev_fast >= prev_slow and fast_ema < slow_ema   # Death cross
-
-    if ema_cross_up or fast_ema > slow_ema:
+    # ── شرط 2: M1 EMA اتجاه (لازم يوافق M5) ─────────────
+    if fast_ema > slow_ema:
         b_score += 1
-        label = "EMA Cross UP ✓" if ema_cross_up else "EMA9 > EMA21 ↑"
-        b_reasons.append(label)
-    if ema_cross_down or fast_ema < slow_ema:
+        b_reasons.append(f"M1 EMA9({fast_ema:.0f}) > EMA21({slow_ema:.0f}) ↑")
+    elif fast_ema < slow_ema:
         s_score += 1
-        label = "EMA Cross DOWN ✓" if ema_cross_down else "EMA9 < EMA21 ↓"
-        s_reasons.append(label)
+        s_reasons.append(f"M1 EMA9({fast_ema:.0f}) < EMA21({slow_ema:.0f}) ↓")
+    else:
+        # EMA متساوية — مفيش اتجاه
+        pass
 
-    # 3. RSI momentum — not at extremes, momentum in our direction
+    # ── شرط 3: RSI — فوق 50 صعود، تحت 50 هبوط ──────────
+    # RSI 50 = خط النصف. فوقه قوة شراء. تحته قوة بيع.
     if rsi_val is not None:
-        if 40.0 <= rsi_val <= 65.0:
+        if rsi_val > 52:               # فوق 52 = زخم صعود
             b_score += 1
-            b_reasons.append(f"RSI={rsi_val} (bullish zone)")
-        if 35.0 <= rsi_val <= 60.0:
+            b_reasons.append(f"RSI={rsi_val} > 52 (bullish momentum)")
+        elif rsi_val < 48:             # تحت 48 = زخم هبوط
             s_score += 1
-            s_reasons.append(f"RSI={rsi_val} (bearish zone)")
+            s_reasons.append(f"RSI={rsi_val} < 48 (bearish momentum)")
+        else:
+            # RSI في المنطقة المحايدة 48-52 — استنى
+            b_reasons.append(f"RSI={rsi_val} (neutral zone — no signal)")
+            s_reasons.append(f"RSI={rsi_val} (neutral zone — no signal)")
 
-    # 4. MACD histogram direction
+    # ── شرط 4: MACD Histogram — موجب لـ BUY، سالب لـ SELL ─
     if macd_hist is not None:
         if macd_hist > 0:
             b_score += 1
-            b_reasons.append(f"MACD hist +{macd_hist:.4f}")
+            b_reasons.append(f"MACD +{macd_hist:.2f} (bullish)")
         elif macd_hist < 0:
             s_score += 1
-            s_reasons.append(f"MACD hist {macd_hist:.4f}")
+            s_reasons.append(f"MACD {macd_hist:.2f} (bearish)")
+        else:
+            b_reasons.append("MACD = 0 (no momentum)")
+            s_reasons.append("MACD = 0 (no momentum)")
 
-    # ── Hard Block: Never trade counter to M5 trend ───────
-    if htf_signal == SIGNAL_SELL and b_score > 0:
-        b_score = 0
-        b_reasons = ["Blocked — M5 downtrend, no BUY"]
-    elif htf_signal == SIGNAL_BUY and s_score > 0:
-        s_score = 0
-        s_reasons = ["Blocked — M5 uptrend, no SELL"]
+    # ══════════════════════════════════════════════════════
+    # HARD RULE: M5 و M1 لازم يتفقوا — مش اختياري
+    # لو M5 هبوط و M1 صعود = تعارض = WAIT
+    # ══════════════════════════════════════════════════════
+    m1_up   = fast_ema > slow_ema
+    m1_down = fast_ema < slow_ema
 
-    # ── Dynamic TP calculation based on ATR ───────────────
-    dynamic_tp_usd = None
-    if atr_val is not None:
-        # value_per_point for 0.01 lot BTC: very small, so ATR in price * value = TP in USD
-        # We'll store raw ATR and let engine calculate USD value
-        dynamic_tp_usd = atr_val  # engine will convert to USD
+    if htf_signal == SIGNAL_SELL and m1_up:
+        return _wait_detail(
+            f"WAIT — تعارض: M5 هبوط لكن M1 صعود (EMA9={fast_ema:.0f} > EMA21={slow_ema:.0f}) — انتظر توافق",
+            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
+        )
+
+    if htf_signal == SIGNAL_BUY and m1_down:
+        return _wait_detail(
+            f"WAIT — تعارض: M5 صعود لكن M1 هبوط (EMA9={fast_ema:.0f} < EMA21={slow_ema:.0f}) — انتظر توافق",
+            fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
+        )
+
+    # ══════════════════════════════════════════════════════
+    # القرار النهائي — 4/4 مطلوب (كل الشروط)
+    # ══════════════════════════════════════════════════════
+    threshold = config.MIN_SIGNAL_SCORE  # = 4
 
     trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
-    threshold = config.MIN_SIGNAL_SCORE
 
-    if b_score >= threshold and b_score > s_score:
+    if b_score >= threshold:
         signal = SIGNAL_BUY
         score  = b_score
-        reason = f"BUY {b_score}/4 | " + " | ".join(b_reasons)
-    elif s_score >= threshold and s_score > b_score:
+        reason = f"BUY {b_score}/4 ✅ | " + " | ".join(b_reasons)
+    elif s_score >= threshold:
         signal = SIGNAL_SELL
         score  = s_score
-        reason = f"SELL {s_score}/4 | " + " | ".join(s_reasons)
+        reason = f"SELL {s_score}/4 ✅ | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
         score  = max(b_score, s_score)
-        reason = f"WAIT — BUY:{b_score}/4 SELL:{s_score}/4 (need >= {threshold})"
+        dir_b  = " | ".join(b_reasons) if b_score > s_score else " | ".join(s_reasons)
+        reason = f"WAIT — {max(b_score,s_score)}/4 (محتاج {threshold}/4) | {dir_b}"
 
     return {
         "signal":       signal,
         "score":        score,
         "max_score":    4,
         "reason":       reason,
-        "fast_ema":     round(fast_ema, 5),
-        "slow_ema":     round(slow_ema, 5),
+        "fast_ema":     round(fast_ema, 2),
+        "slow_ema":     round(slow_ema, 2),
         "rsi":          rsi_val,
         "macd":         macd_hist,
         "adx":          adx_val,
         "atr":          atr_val,
         "trend":        trend_str,
         "htf_signal":   htf_signal,
-        "dynamic_tp":   dynamic_tp_usd,
+        "dynamic_tp":   atr_val,
         "candles_used": len(candles),
     }
 
 
+# ══════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════
+
 def _wait(reason: str) -> dict:
     return {
-        "signal":       SIGNAL_WAIT,
-        "score":        0,
-        "max_score":    4,
-        "reason":       reason,
-        "fast_ema":     None,
-        "slow_ema":     None,
-        "rsi":          None,
-        "macd":         None,
-        "adx":          None,
-        "atr":          None,
-        "trend":        "FLAT",
-        "htf_signal":   SIGNAL_WAIT,
-        "dynamic_tp":   None,
-        "candles_used": 0,
+        "signal": SIGNAL_WAIT, "score": 0, "max_score": 4,
+        "reason": reason, "fast_ema": None, "slow_ema": None,
+        "rsi": None, "macd": None, "adx": None, "atr": None,
+        "trend": "FLAT", "htf_signal": SIGNAL_WAIT,
+        "dynamic_tp": None, "candles_used": 0,
+    }
+
+
+def _wait_detail(reason, fe, se, rsi, macd, adx, atr, htf, used) -> dict:
+    trend = "UP" if (fe and se and fe > se) else ("DOWN" if (fe and se and fe < se) else "FLAT")
+    return {
+        "signal": SIGNAL_WAIT, "score": 0, "max_score": 4,
+        "reason": reason,
+        "fast_ema": round(fe, 2) if fe else None,
+        "slow_ema": round(se, 2) if se else None,
+        "rsi": rsi, "macd": macd, "adx": adx, "atr": atr,
+        "trend": trend, "htf_signal": htf,
+        "dynamic_tp": atr, "candles_used": used,
     }
