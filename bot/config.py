@@ -96,9 +96,9 @@ ADX_MIN: float     = 15.0        # فلتر خفيف فقط للتذبذب ال�
 # ──────────────────────────────────────────────────────────
 # Daily goals & safety
 # ──────────────────────────────────────────────────────────
-DAILY_GOAL_USD: float       = 10.0
-MAX_DAILY_LOSS_USD: float   = 5.00     # وقف عند خسارة 5$ في اليوم
-AUTO_PAUSE_ON_DAILY_LOSS: bool = True
+DAILY_GOAL_USD: float       = 99999.0   # مش بيوقف
+MAX_DAILY_LOSS_USD: float   = 99999.0   # مش بيوقف
+AUTO_PAUSE_ON_DAILY_LOSS: bool = False  # البوت شغال 24/7 بلا حدود
 
 
 # ──────────────────────────────────────────────────────────
