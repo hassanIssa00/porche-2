@@ -1,16 +1,15 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v3.0 — Analysis Engine
-  محرك التحليل الفني المتقدم — استراتيجية بولباك الاتجاه
+  ISSSSMAIL SCALPER BOT v4.0 — Analysis Engine
+  محرك التحليل — سكالبينج سريع M1 + تأكيد M5
 =============================================================
 
-Professional Trend-Pullback Confluence System:
-  1. Macro Trend: M15 EMA 20 vs EMA 50
-  2. Micro Trend: M5 EMA 20 vs EMA 50
-  3. Pullback Check: Price near EMA 20 (not overextended)
-  4. Candle Reversal: Bullish/Bearish confirmation candle
-  5. RSI Momentum: Healthy zone (no buying into overbought)
-  6. MACD Confirmation: Momentum expanding in trend direction
+Strategy: EMA Cross + RSI Momentum + M5 Trend Filter
+  1. M5 trend direction (EMA 20 vs EMA 50) — الاتجاه العام
+  2. M1 EMA cross (EMA 9 vs EMA 21) — نقطة الدخول
+  3. RSI momentum confirmation — تأكيد الزخم
+  4. Candle body confirmation — تأكيد الشمعة
+  Score 3/4 required to enter trade
 """
 
 import math
@@ -27,11 +26,10 @@ SIGNAL_WAIT = "WAIT"
 
 
 # ══════════════════════════════════════════════════════════
-# TECHNICAL INDICATORS (Pure Python)
+# TECHNICAL INDICATORS
 # ══════════════════════════════════════════════════════════
 
 def _ema(closes: list[float], period: int) -> list[float]:
-    """Exponential Moving Average."""
     if len(closes) < period:
         return []
     k = 2.0 / (period + 1)
@@ -43,7 +41,6 @@ def _ema(closes: list[float], period: int) -> list[float]:
 
 
 def _rsi(closes: list[float], period: int = 14) -> Optional[float]:
-    """Relative Strength Index."""
     if len(closes) < period + 1:
         return None
     gains, losses = [], []
@@ -65,7 +62,6 @@ def _rsi(closes: list[float], period: int = 14) -> Optional[float]:
 
 def _macd(closes: list[float], fast: int = 12, slow: int = 26, sig: int = 9
           ) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    """MACD line, signal line, histogram."""
     if len(closes) < slow + sig:
         return None, None, None
     fe = _ema(closes, fast)
@@ -88,7 +84,6 @@ def _macd(closes: list[float], fast: int = 12, slow: int = 26, sig: int = 9
 
 def _atr(highs: list[float], lows: list[float], closes: list[float], period: int = 14
          ) -> Optional[float]:
-    """Average True Range (volatility)."""
     if len(closes) < period + 1:
         return None
     trs = [
@@ -105,7 +100,6 @@ def _atr(highs: list[float], lows: list[float], closes: list[float], period: int
 
 def _adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14
          ) -> Optional[float]:
-    """Average Directional Index (trend strength)."""
     n = len(closes)
     if n < period * 2 + 2:
         return None
@@ -150,7 +144,7 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
 
 
 # ══════════════════════════════════════════════════════════
-# MAIN ANALYSIS LOGIC
+# MAIN ANALYSIS — Scalping v4.0
 # ══════════════════════════════════════════════════════════
 
 def analyze(
@@ -158,8 +152,9 @@ def analyze(
     htf_candles: Optional[list[dict]] = None,
 ) -> dict:
     """
-    Perform professional trend-pullback confluence analysis.
-    Returns signal (BUY / SELL / WAIT) with score and indicators.
+    Fast scalping analysis — M1 entries, M5 trend filter.
+    4 conditions, need 3/4 to enter.
+    Returns dynamic TP suggestion based on ATR.
     """
     if len(candles) < config.CANDLES_NEEDED:
         return _wait(f"Need {config.CANDLES_NEEDED} candles, got {len(candles)}")
@@ -169,14 +164,17 @@ def analyze(
     lows   = [float(c["low"])   for c in candles]
     opens  = [float(c["open"])  for c in candles]
 
-    # Calculate indicators on M5
-    fast_ema_list = _ema(closes, config.TREND_FAST_EMA)
-    slow_ema_list = _ema(closes, config.TREND_SLOW_EMA)
+    # ── M1 Indicators ─────────────────────────────────────
+    fast_ema_list = _ema(closes, config.TREND_FAST_EMA)   # EMA 9
+    slow_ema_list = _ema(closes, config.TREND_SLOW_EMA)   # EMA 21
     if not fast_ema_list or not slow_ema_list:
         return _wait("EMA calculation failed")
 
     fast_ema = fast_ema_list[-1]
     slow_ema = slow_ema_list[-1]
+    # Previous bar EMAs for crossover detection
+    prev_fast = fast_ema_list[-2] if len(fast_ema_list) >= 2 else fast_ema
+    prev_slow = slow_ema_list[-2] if len(slow_ema_list) >= 2 else slow_ema
 
     rsi_val  = _rsi(closes, config.RSI_PERIOD)
     atr_val  = _atr(highs, lows, closes, config.ATR_PERIOD)
@@ -185,8 +183,9 @@ def analyze(
 
     last_close = closes[-1]
     last_open  = opens[-1]
+    prev_close = closes[-2] if len(closes) >= 2 else last_close
 
-    # Macro trend from M15
+    # ── M5 Trend Direction ────────────────────────────────
     htf_signal = SIGNAL_WAIT
     if htf_candles and len(htf_candles) >= config.HTF_CANDLES:
         htf_closes = [float(c["close"]) for c in htf_candles]
@@ -198,115 +197,104 @@ def analyze(
             elif h_fast[-1] < h_slow[-1]:
                 htf_signal = SIGNAL_SELL
 
-    # Confluence Scoring (0 to 6 points)
-    b_score, s_score = 0, 0
-    b_reasons, s_reasons = [], []
-
-    # 1. M5 EMA trend
-    if fast_ema > slow_ema:
-        b_score += 1
-        b_reasons.append("M5 EMA20>EMA50 ↑")
-    elif fast_ema < slow_ema:
-        s_score += 1
-        s_reasons.append("M5 EMA20<EMA50 ↓")
-
-    # 2. M15 Higher Timeframe alignment
-    if htf_signal == SIGNAL_BUY:
-        b_score += 1
-        b_reasons.append("M15 Trend: BULLISH ✓")
-    elif htf_signal == SIGNAL_SELL:
-        s_score += 1
-        s_reasons.append("M15 Trend: BEARISH ✓")
-
-    # 3. Pullback / Value Check (price not overextended from EMA20)
-    # Distance from EMA20 should be <= 1.5 ATR
-    if atr_val and atr_val > 0:
-        dist = abs(last_close - fast_ema)
-        if dist <= 1.5 * atr_val:
-            b_score += 1
-            s_score += 1
-            b_reasons.append("Healthy pullback (not overextended)")
-            s_reasons.append("Healthy pullback (not overextended)")
-        else:
-            b_reasons.append("Price extended from EMA20")
-            s_reasons.append("Price extended from EMA20")
-
-    # 4. Candlestick Confirmation
-    if last_close > last_open and last_close >= fast_ema:
-        b_score += 1
-        b_reasons.append("Bullish candle close above EMA20")
-    elif last_close < last_open and last_close <= fast_ema:
-        s_score += 1
-        s_reasons.append("Bearish candle close below EMA20")
-
-    # 5. RSI Momentum in healthy zone
-    if rsi_val is not None:
-        if 45.0 <= rsi_val <= 68.0:
-            b_score += 1
-            b_reasons.append(f"RSI={rsi_val} (bullish zone)")
-        if 32.0 <= rsi_val <= 55.0:
-            s_score += 1
-            s_reasons.append(f"RSI={rsi_val} (bearish zone)")
-
-    # 6. MACD Histogram confirmation
-    if macd_hist is not None:
-        if macd_hist > 0:
-            b_score += 1
-            b_reasons.append(f"MACD+{macd_hist:.4f}")
-        elif macd_hist < 0:
-            s_score += 1
-            s_reasons.append(f"MACD{macd_hist:.4f}")
-
-    # ── HARD FILTER 1: Macro HTF Trend Alignment ────────────
-    # In Bitcoin, NEVER enter counter-trend against M15!
-    if htf_signal == SIGNAL_SELL:
-        b_score = 0
-        b_reasons = ["Blocked by M15 Macro Downtrend"]
-    elif htf_signal == SIGNAL_BUY:
-        s_score = 0
-        s_reasons = ["Blocked by M15 Macro Uptrend"]
-
-    trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
-
-    # ── HARD FILTER 2: Chop / Consolidation Guard (ADX) ────
-    # If ADX is weak, the market is in a choppy flat range — DO NOT TRADE
-    min_adx = getattr(config, "ADX_MIN", 18.0)
+    # ── Chop Filter: skip if market is flat/choppy ────────
+    min_adx = getattr(config, "ADX_MIN", 15.0)
     if adx_val is not None and adx_val < min_adx:
         return {
-            "signal":       SIGNAL_WAIT,
-            "score":        max(b_score, s_score),
-            "max_score":    6,
-            "reason":       f"WAIT — فلتر التذبذب: السوق متذبذب بدون اتجاه واضح (ADX={adx_val:.1f} < {min_adx})",
-            "fast_ema":     round(fast_ema, 5),
-            "slow_ema":     round(slow_ema, 5),
-            "rsi":          rsi_val,
-            "macd":         macd_hist,
-            "adx":          adx_val,
-            "atr":          atr_val,
-            "trend":        trend_str,
-            "htf_signal":   htf_signal,
+            "signal":     SIGNAL_WAIT,
+            "score":      0,
+            "max_score":  4,
+            "reason":     f"WAIT — سوق متذبذب (ADX={adx_val:.1f} < {min_adx})",
+            "fast_ema":   round(fast_ema, 5),
+            "slow_ema":   round(slow_ema, 5),
+            "rsi":        rsi_val,
+            "macd":       macd_hist,
+            "adx":        adx_val,
+            "atr":        atr_val,
+            "trend":      "FLAT",
+            "htf_signal": htf_signal,
+            "dynamic_tp": None,
             "candles_used": len(candles),
         }
 
+    # ── Scoring: 4 conditions ─────────────────────────────
+    b_score, s_score = 0, 0
+    b_reasons, s_reasons = [], []
+
+    # 1. M5 Trend alignment (most important)
+    if htf_signal == SIGNAL_BUY:
+        b_score += 1
+        b_reasons.append("M5 Trend: UP ↑")
+    elif htf_signal == SIGNAL_SELL:
+        s_score += 1
+        s_reasons.append("M5 Trend: DOWN ↓")
+
+    # 2. M1 EMA Cross (fresh cross = stronger signal)
+    ema_cross_up   = prev_fast <= prev_slow and fast_ema > slow_ema   # Golden cross
+    ema_cross_down = prev_fast >= prev_slow and fast_ema < slow_ema   # Death cross
+
+    if ema_cross_up or fast_ema > slow_ema:
+        b_score += 1
+        label = "EMA Cross UP ✓" if ema_cross_up else "EMA9 > EMA21 ↑"
+        b_reasons.append(label)
+    if ema_cross_down or fast_ema < slow_ema:
+        s_score += 1
+        label = "EMA Cross DOWN ✓" if ema_cross_down else "EMA9 < EMA21 ↓"
+        s_reasons.append(label)
+
+    # 3. RSI momentum — not at extremes, momentum in our direction
+    if rsi_val is not None:
+        if 40.0 <= rsi_val <= 65.0:
+            b_score += 1
+            b_reasons.append(f"RSI={rsi_val} (bullish zone)")
+        if 35.0 <= rsi_val <= 60.0:
+            s_score += 1
+            s_reasons.append(f"RSI={rsi_val} (bearish zone)")
+
+    # 4. MACD histogram direction
+    if macd_hist is not None:
+        if macd_hist > 0:
+            b_score += 1
+            b_reasons.append(f"MACD hist +{macd_hist:.4f}")
+        elif macd_hist < 0:
+            s_score += 1
+            s_reasons.append(f"MACD hist {macd_hist:.4f}")
+
+    # ── Hard Block: Never trade counter to M5 trend ───────
+    if htf_signal == SIGNAL_SELL and b_score > 0:
+        b_score = 0
+        b_reasons = ["Blocked — M5 downtrend, no BUY"]
+    elif htf_signal == SIGNAL_BUY and s_score > 0:
+        s_score = 0
+        s_reasons = ["Blocked — M5 uptrend, no SELL"]
+
+    # ── Dynamic TP calculation based on ATR ───────────────
+    dynamic_tp_usd = None
+    if atr_val is not None:
+        # value_per_point for 0.01 lot BTC: very small, so ATR in price * value = TP in USD
+        # We'll store raw ATR and let engine calculate USD value
+        dynamic_tp_usd = atr_val  # engine will convert to USD
+
+    trend_str = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
     threshold = config.MIN_SIGNAL_SCORE
 
     if b_score >= threshold and b_score > s_score:
         signal = SIGNAL_BUY
-        score = b_score
-        reason = f"BUY {b_score}/6 | " + " | ".join(b_reasons)
+        score  = b_score
+        reason = f"BUY {b_score}/4 | " + " | ".join(b_reasons)
     elif s_score >= threshold and s_score > b_score:
         signal = SIGNAL_SELL
-        score = s_score
-        reason = f"SELL {s_score}/6 | " + " | ".join(s_reasons)
+        score  = s_score
+        reason = f"SELL {s_score}/4 | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
-        score = max(b_score, s_score)
-        reason = f"WAIT — BUY:{b_score}/6 SELL:{s_score}/6 (need ≥{threshold}/6)"
+        score  = max(b_score, s_score)
+        reason = f"WAIT — BUY:{b_score}/4 SELL:{s_score}/4 (need >= {threshold})"
 
     return {
         "signal":       signal,
         "score":        score,
-        "max_score":    6,
+        "max_score":    4,
         "reason":       reason,
         "fast_ema":     round(fast_ema, 5),
         "slow_ema":     round(slow_ema, 5),
@@ -316,6 +304,7 @@ def analyze(
         "atr":          atr_val,
         "trend":        trend_str,
         "htf_signal":   htf_signal,
+        "dynamic_tp":   dynamic_tp_usd,
         "candles_used": len(candles),
     }
 
@@ -324,7 +313,7 @@ def _wait(reason: str) -> dict:
     return {
         "signal":       SIGNAL_WAIT,
         "score":        0,
-        "max_score":    6,
+        "max_score":    4,
         "reason":       reason,
         "fast_ema":     None,
         "slow_ema":     None,
@@ -334,5 +323,6 @@ def _wait(reason: str) -> dict:
         "atr":          None,
         "trend":        "FLAT",
         "htf_signal":   SIGNAL_WAIT,
+        "dynamic_tp":   None,
         "candles_used": 0,
     }

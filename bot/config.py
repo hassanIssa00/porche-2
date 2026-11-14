@@ -1,15 +1,15 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v3.0 — Professional Swing Scalper
-  إعدادات بوت التداول الاحترافي — استراتيجية بولباك منضبطة
+  ISSSSMAIL SCALPER BOT v4.0 — High-Frequency Micro Scalper
+  استراتيجية سكالبينج سريع — أرباح صغيرة + صفقات كثيرة
 =============================================================
 
-Key Strategy Rules:
-  1. No overtrading: Only 1 trade open across the account.
-  2. Cooldown: Minimum 180 seconds (3 mins) after closing before opening again.
-  3. Realistic targets: TP = $3.00, SL = $2.50 (room to breathe, well above spread).
-  4. Breakeven protection: When profit reaches +$1.50, SL moves to entry + $0.30 (risk-free).
-  5. Strict daily loss cap: Auto-pauses if daily loss reaches $15.00.
+Strategy Rules:
+  1. Many small trades — TP $0.40 to $2.00 (dynamic per ATR)
+  2. Max loss per trade: $0.50 (hard limit)
+  3. M1 for fast entries, M5 for trend direction
+  4. No overtrading: 1 trade at a time, 60s cooldown
+  5. Daily loss cap: $5.00 auto-pause
 """
 
 # ──────────────────────────────────────────────────────────
@@ -19,66 +19,70 @@ MCP_SERVER_DIR: str = r"C:\Users\hassa\Desktop\all project\mcp forex"
 
 
 # ──────────────────────────────────────────────────────────
-# Symbols to trade (Bitcoin Only — تم إلغاء الذهب تماماً)
+# Symbols to trade (Bitcoin Only)
 # ──────────────────────────────────────────────────────────
-SYMBOLS: list[str] = ["BTCUSDm"]   # Exness broker suffix
-
-
-# ──────────────────────────────────────────────────────────
-# Trade sizing & realistic profit/loss targets per trade
-# حجم الصفقة وأهداف ربح ووقف واقعية للبيتكوين
-# ──────────────────────────────────────────────────────────
-LOT_SIZE: float = 0.01            # Minimum lot
-
-# Target profit: $3.50 ($350 حركة في سعر البيتكوين — ربح حقيقي محترم)
-TAKE_PROFIT_USD: float = 3.50
-
-# Stop loss: $2.00 ($200 حركة في سعر البيتكوين — مساحة كافية فوق الـ spread)
-STOP_LOSS_USD: float = 2.00
-
-# Breakeven protection: when profit reaches +$1.00, move SL to entry (zero risk)
-# يحرك الـ SL لنقطة الدخول بمجرد ما الصفقة تربح دولار
-BREAKEVEN_TRIGGER_USD: float = 1.00
-BREAKEVEN_LOCK_USD: float = 0.10
-
-# Fallback SL/TP points for MT5 order
-SL_POINTS: int = 18000
-TP_POINTS: int = 35000
+SYMBOLS: list[str] = ["BTCUSDm"]
 
 
 # ──────────────────────────────────────────────────────────
-# Overtrading & frequency guards
-# حماية من فتح الصفقات المتكرر والنزيف
+# Trade sizing
 # ──────────────────────────────────────────────────────────
-# Maximum open positions across all symbols (trade 1 symbol at a time)
+LOT_SIZE: float = 0.01
+
+
+# ──────────────────────────────────────────────────────────
+# Stop Loss & Take Profit — SCALPING MODE
+# خسارة أقصى 0.50$ — ربح ديناميكي 0.40 لـ 2.00$
+# ──────────────────────────────────────────────────────────
+
+# STOP LOSS: أقصى خسارة 0.50 دولار للصفقة
+STOP_LOSS_USD: float    = 0.50
+
+# TAKE PROFIT: ديناميكي بناءً على ATR — الحد الأدنى والأقصى
+TP_MIN_USD: float       = 0.40     # أقل ربح مقبول
+TP_MAX_USD: float       = 2.00     # أقصى هدف ربح
+TP_ATR_MULT: float      = 1.5      # الهدف = 1.5x ATR (ديناميكي)
+
+# للتوافق مع باقي الكود
+TAKE_PROFIT_USD: float  = 1.00     # القيمة الافتراضية (يتم تجاوزها ديناميكياً)
+
+# Breakeven: لما الربح يوصل 0.30$ — حرك الـ SL لنقطة الدخول (صفر خسارة)
+BREAKEVEN_TRIGGER_USD: float = 0.30
+BREAKEVEN_LOCK_USD: float    = 0.05
+
+# Fallback points (للحساب الداخلي فقط)
+SL_POINTS: int = 5000
+TP_POINTS: int = 10000
+
+
+# ──────────────────────────────────────────────────────────
+# Frequency & cooldown
+# ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-
-# Cooldown after closing a trade before opening a new one (seconds)
-TRADE_COOLDOWN_SEC: int = 120     # 2 minutes cooldown
+TRADE_COOLDOWN_SEC: int = 60      # 60 ثانية كول داون بين الصفقات
 
 
 # ──────────────────────────────────────────────────────────
-# Trend & analysis settings
-# إعدادات تحليل الاتجاه والبولباك
+# Analysis — M1 for signals, M5 for trend
 # ──────────────────────────────────────────────────────────
-TREND_TF: str         = "M5"      # Primary trading timeframe
-TREND_FAST_EMA: int   = 20        # EMA 20 on M5
-TREND_SLOW_EMA: int   = 50        # EMA 50 on M5
-RSI_PERIOD: int       = 14        # RSI period
-RSI_OVERBOUGHT: float = 70.0      # Overbought
-RSI_OVERSOLD:  float  = 30.0      # Oversold
-CANDLES_NEEDED: int   = 60        # Minimum candles for analysis
+TREND_TF: str         = "M1"      # التايم فريم الأساسي للدخول
+TREND_FAST_EMA: int   = 9         # EMA 9 على M1
+TREND_SLOW_EMA: int   = 21        # EMA 21 على M1
+RSI_PERIOD: int       = 14
+RSI_OVERBOUGHT: float = 70.0
+RSI_OVERSOLD:  float  = 30.0
+CANDLES_NEEDED: int   = 50
 
-# Higher Timeframe (HTF) confirmation (M15)
-HTF_TF: str         = "M15"       # Macro trend timeframe
+# Higher Timeframe — M5 للاتجاه العام
+HTF_TF: str         = "M5"
 HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score required (out of 6 — دخول مثالي فقط كل الشروط محتاجة)
-MIN_SIGNAL_SCORE: int = 6
+# Confluence score — 3 من 4 شروط كافية
+MIN_SIGNAL_SCORE: int = 3
 
-# Indicator settings
+# Indicators
 MACD_FAST: int     = 12
 MACD_SLOW: int     = 26
 MACD_SIGNAL: int   = 9
@@ -86,25 +90,22 @@ BB_PERIOD: int     = 20
 BB_STD: float      = 2.0
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 22.0         # Minimum trend strength (يمنع التداول أثناء التذبذب المسطح)
+ADX_MIN: float     = 15.0        # فلتر خفيف فقط للتذبذب الشديد
 
 
 # ──────────────────────────────────────────────────────────
-# Daily goals & safety loss cap
-# حارس حماية رأس المال — إيقاف التداول فوراً عند حد أقصى
+# Daily goals & safety
 # ──────────────────────────────────────────────────────────
-DAILY_GOAL_USD: float = 20.0      # Realistic daily target
-
-# Maximum daily loss: stop trading if account loses $15 in a day!
-MAX_DAILY_LOSS_USD: float = 15.00
-AUTO_PAUSE_ON_DAILY_LOSS: bool = True   # MUST be True to protect capital
+DAILY_GOAL_USD: float       = 10.0
+MAX_DAILY_LOSS_USD: float   = 5.00     # وقف عند خسارة 5$ في اليوم
+AUTO_PAUSE_ON_DAILY_LOSS: bool = True
 
 
 # ──────────────────────────────────────────────────────────
 # Sessions & timing
 # ──────────────────────────────────────────────────────────
 SESSION_FILTER_ENABLED: bool = True
-BTC_SESSIONS:  list = [(0, 24)]   # Bitcoin trades 24/7
+BTC_SESSIONS:  list = [(0, 24)]
 
-SCAN_INTERVAL_SEC: int = 3        # Scan loop interval (seconds)
-MAGIC_NUMBER:      int = 998877   # Bot trade identifier
+SCAN_INTERVAL_SEC: int = 2
+MAGIC_NUMBER:      int = 998877

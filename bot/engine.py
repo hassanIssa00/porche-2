@@ -407,8 +407,18 @@ class ScalperEngine:
         if value_per_point <= 0:
             value_per_point = 0.001
 
-        # Target $3.00, Stop $2.50
-        tp_pts = int(config.TAKE_PROFIT_USD / value_per_point)
+        # ── Dynamic TP calculation (ATR-based, capped $0.40 - $2.00) ──
+        raw_atr = result.get("dynamic_tp")  # raw ATR in price units
+        if raw_atr and value_per_point > 0:
+            atr_usd = raw_atr * value_per_point
+            dynamic_tp = atr_usd * getattr(config, "TP_ATR_MULT", 1.5)
+            tp_min = getattr(config, "TP_MIN_USD", 0.40)
+            tp_max = getattr(config, "TP_MAX_USD", 2.00)
+            final_tp_usd = max(tp_min, min(tp_max, dynamic_tp))
+        else:
+            final_tp_usd = config.TAKE_PROFIT_USD
+
+        tp_pts = int(final_tp_usd / value_per_point)
         sl_pts = int(config.STOP_LOSS_USD / value_per_point)
 
         # Broker stop level buffer
@@ -428,7 +438,7 @@ class ScalperEngine:
             direction = "SELL"
 
         logger.info("[%s] Executing %s: entry=%.3f, SL=%.3f ($%.2f), TP=%.3f ($%.2f)",
-                    symbol, direction, entry, sl, config.STOP_LOSS_USD, tp, config.TAKE_PROFIT_USD)
+                    symbol, direction, entry, sl, config.STOP_LOSS_USD, tp, final_tp_usd)
 
         res = mt5bridge.open_trade(
             symbol=symbol,
