@@ -229,19 +229,17 @@ def analyze(
         # EMA متساوية — مفيش اتجاه
         pass
 
-    # ── شرط 3: RSI — فوق 50 صعود، تحت 50 هبوط ──────────
-    # RSI 50 = خط النصف. فوقه قوة شراء. تحته قوة بيع.
+    # ── شرط 3: RSI — فوق 55 صعود، تحت 45 هبوط ──────────
     if rsi_val is not None:
-        if rsi_val > 52:               # فوق 52 = زخم صعود
+        if rsi_val > 55:
             b_score += 1
-            b_reasons.append(f"RSI={rsi_val} > 52 (bullish momentum)")
-        elif rsi_val < 48:             # تحت 48 = زخم هبوط
+            b_reasons.append(f"RSI={rsi_val} > 55 (bullish)")
+        elif rsi_val < 45:
             s_score += 1
-            s_reasons.append(f"RSI={rsi_val} < 48 (bearish momentum)")
+            s_reasons.append(f"RSI={rsi_val} < 45 (bearish)")
         else:
-            # RSI في المنطقة المحايدة 48-52 — استنى
-            b_reasons.append(f"RSI={rsi_val} (neutral zone — no signal)")
-            s_reasons.append(f"RSI={rsi_val} (neutral zone — no signal)")
+            b_reasons.append(f"RSI={rsi_val} (محايد 45-55)")
+            s_reasons.append(f"RSI={rsi_val} (محايد 45-55)")
 
     # ── شرط 4: MACD Histogram — موجب لـ BUY، سالب لـ SELL ─
     if macd_hist is not None:
@@ -256,21 +254,25 @@ def analyze(
             s_reasons.append("MACD = 0 (no momentum)")
 
     # ══════════════════════════════════════════════════════
-    # HARD RULE: M5 و M1 لازم يتفقوا — مش اختياري
-    # لو M5 هبوط و M1 صعود = تعارض = WAIT
+    # HARD RULE: M5 و M1 لازم يتفقوا
+    # استثناء: لو الفرق بين EMA9 و EMA21 كبير جداً = تعارض حقيقي
+    # لو الفرق صغير (< 100 نقطة) = السوق بيتحول = نسمح بالدخول
     # ══════════════════════════════════════════════════════
+    ema_gap = abs(fast_ema - slow_ema)
+    strong_conflict = ema_gap > 100  # فرق أكبر من 100$ = تعارض حقيقي
+
     m1_up   = fast_ema > slow_ema
     m1_down = fast_ema < slow_ema
 
-    if htf_signal == SIGNAL_SELL and m1_up:
+    if htf_signal == SIGNAL_SELL and m1_up and strong_conflict:
         return _wait_detail(
-            f"WAIT — تعارض: M5 هبوط لكن M1 صعود (EMA9={fast_ema:.0f} > EMA21={slow_ema:.0f}) — انتظر توافق",
+            f"WAIT — تعارض قوي: M5 هبوط vs M1 صعود (فرق EMA={ema_gap:.0f}$) — انتظر",
             fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
         )
 
-    if htf_signal == SIGNAL_BUY and m1_down:
+    if htf_signal == SIGNAL_BUY and m1_down and strong_conflict:
         return _wait_detail(
-            f"WAIT — تعارض: M5 صعود لكن M1 هبوط (EMA9={fast_ema:.0f} < EMA21={slow_ema:.0f}) — انتظر توافق",
+            f"WAIT — تعارض قوي: M5 صعود vs M1 هبوط (فرق EMA={ema_gap:.0f}$) — انتظر",
             fast_ema, slow_ema, rsi_val, macd_hist, adx_val, atr_val, htf_signal, len(candles)
         )
 
