@@ -33,13 +33,13 @@ LOT_SIZE: float = 0.01            # Minimum lot
 # Target profit: $3.50 ($350 حركة في سعر البيتكوين — ربح حقيقي محترم)
 TAKE_PROFIT_USD: float = 3.50
 
-# Stop loss: $1.80 ($180 حركة في سعر البيتكوين — خسارة محدودة ومتحكم بها)
-STOP_LOSS_USD: float = 1.80
+# Stop loss: $2.00 ($200 حركة في سعر البيتكوين — مساحة كافية فوق الـ spread)
+STOP_LOSS_USD: float = 2.00
 
-# Breakeven protection: when profit reaches +$1.80, lock +$0.80 profit!
-# حجز أرباح حقيقي عند 80 سنت وليس 20 سنت تافهة
-BREAKEVEN_TRIGGER_USD: float = 1.80
-BREAKEVEN_LOCK_USD: float = 0.80
+# Breakeven protection: when profit reaches +$1.00, move SL to entry (zero risk)
+# يحرك الـ SL لنقطة الدخول بمجرد ما الصفقة تربح دولار
+BREAKEVEN_TRIGGER_USD: float = 1.00
+BREAKEVEN_LOCK_USD: float = 0.10
 
 # Fallback SL/TP points for MT5 order
 SL_POINTS: int = 18000
@@ -75,8 +75,8 @@ HTF_FAST_EMA: int   = 20
 HTF_SLOW_EMA: int   = 50
 HTF_CANDLES: int    = 40
 
-# Confluence score required (out of 6 — دخول قوي فقط)
-MIN_SIGNAL_SCORE: int = 5
+# Confluence score required (out of 6 — دخول مثالي فقط كل الشروط محتاجة)
+MIN_SIGNAL_SCORE: int = 6
 
 # Indicator settings
 MACD_FAST: int     = 12
@@ -86,7 +86,7 @@ BB_PERIOD: int     = 20
 BB_STD: float      = 2.0
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 18.0         # Minimum trend strength (يمنع التداول أثناء التذبذب المسطح)
+ADX_MIN: float     = 22.0         # Minimum trend strength (يمنع التداول أثناء التذبذب المسطح)
 
 
 # ──────────────────────────────────────────────────────────
