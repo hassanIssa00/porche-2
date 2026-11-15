@@ -1,17 +1,15 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v5.0 — High-Frequency M1 Micro Scalper
-  بوت السكالبينج فائق السرعة — صفقات سريعة وأرباح متتالية
+  ISSSSMAIL SCALPER BOT v5.5 — High-Quality M1 Scalper
+  بوت السكالبينج الذكي — نسبة ربح إلى خسارة رابحة رياضياً
 =============================================================
 
-Strategy Rules:
-  1. High-frequency scalping on M1 (1-minute timeframe).
-  2. Profit target: $0.40 to $1.50 dynamic (fast exits in profit).
-  3. Max loss per trade: $0.50 (strict hard stop).
-  4. Breakeven protection: at +$0.25 profit, SL moves to entry.
-  5. Short cooldown: 20 seconds between trades.
-  6. 24/7 continuous operation without daily limits.
-  7. Trades BOTH BUY and SELL based on immediate M1 momentum.
+Strategy Mathematical Principles:
+  1. Risk:Reward Ratio is 1:2 (Average Win $0.80 - $1.50 vs Stop Loss $0.50).
+  2. With 1:2 R:R, a 50% win rate produces steady, compounding profit.
+  3. Breakeven triggers at +$0.55 (locks +$0.10, completely risk-free).
+  4. 60-second cooldown prevents overtrading and eliminates broker spread bleed.
+  5. Daily capital protection: auto-pauses at -$8.00 daily loss.
 """
 
 # ──────────────────────────────────────────────────────────
@@ -33,50 +31,49 @@ LOT_SIZE: float = 0.01
 
 
 # ──────────────────────────────────────────────────────────
-# Stop Loss & Take Profit — MICRO SCALPING
+# Stop Loss & Take Profit — PROFITABLE MATHEMATICAL RATIO
 # ──────────────────────────────────────────────────────────
 
-# STOP LOSS: أقصى خسارة 0.50 دولار فقط
+# STOP LOSS: أقصى خسارة 0.50 دولار فقط (حماية صارمة لرأس المال)
 STOP_LOSS_USD: float = 0.50
 
-# TAKE PROFIT: أهداف سريعة بين 0.40$ و 1.50$
-TP_MIN_USD: float    = 0.40     # أقل ربح للإغلاق السريع
-TP_MAX_USD: float    = 1.50     # أقصى ربح للموجة
-TP_ATR_MULT: float   = 1.0      # حجم الهدف = 1x ATR على دقيقة واحدة
-TAKE_PROFIT_USD: float = 0.70   # الهدف الافتراضي
+# TAKE PROFIT: أهداف ربح حقيقية من 0.80$ إلى 1.80$ (المتوسط 1.00$)
+TP_MIN_USD: float    = 0.80     # الحد الأدنى للربح (أعلى بكثير من السبريد)
+TP_MAX_USD: float    = 1.80     # أقصى هدف للموجة القوية
+TP_ATR_MULT: float   = 1.5      # الهدف = 1.5x ATR على الدقيقة
+TAKE_PROFIT_USD: float = 1.00   # الهدف الافتراضي (ضعف الستوب لوس: R:R = 1:2)
 
-# Breakeven: بمجرد ما الصفقة تكسب 0.25$ يتحرك الستوب للدخول (حماية فورية)
-BREAKEVEN_TRIGGER_USD: float = 0.25
-BREAKEVEN_LOCK_USD: float    = 0.05
+# Breakeven: بعد تحقيق 0.55$ ربح يتم تحريك الستوب لنقطة الدخول + 0.10$ أرباح
+BREAKEVEN_TRIGGER_USD: float = 0.55
+BREAKEVEN_LOCK_USD: float    = 0.10
 
 # Fallback points
 SL_POINTS: int = 5000
-TP_POINTS: int = 7000
+TP_POINTS: int = 10000
 
 
 # ──────────────────────────────────────────────────────────
-# Frequency & cooldown (صفقات كثيرة وسريعة)
+# Frequency & cooldown (حماية من النزيف وحرق السبريد)
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 20      # 20 ثانية فقط كول داون بعد إغلاق الصفقة
+TRADE_COOLDOWN_SEC: int = 60      # 60 ثانية بعد إغلاق الصفقة لانتظار شمعة جديدة
 
 
 # ──────────────────────────────────────────────────────────
 # Fast M1 Analysis Settings
 # ──────────────────────────────────────────────────────────
 TREND_TF: str         = "M1"      # التايم فريم السريع M1
-TREND_FAST_EMA: int   = 7         # EMA 7 فائق السرعة
+TREND_FAST_EMA: int   = 7         # EMA 7 سريع
 TREND_SLOW_EMA: int   = 20        # EMA 20 خط الأساس
 RSI_PERIOD: int       = 14
-RSI_OVERBOUGHT: float = 75.0
-RSI_OVERSOLD:  float  = 25.0
 CANDLES_NEEDED: int   = 40
 
-# Higher Timeframe — مرجع إضافي فقط (لا يمنع الصفقات)
-HTF_TF: str         = "M5"
-HTF_FAST_EMA: int   = 20
-HTF_SLOW_EMA: int   = 50
-HTF_CANDLES: int    = 30
+# Higher Timeframe settings
+HTF_TF: str           = "M5"
+HTF_CANDLES: int      = 30
+
+# Minimum EMA separation to avoid chop ($4 on BTC)
+MIN_EMA_DIFF: float   = 4.0
 
 # Confluence score المطلوب للدخول (3 من 3)
 MIN_SIGNAL_SCORE: int = 3
@@ -87,15 +84,15 @@ MACD_SLOW: int     = 26
 MACD_SIGNAL: int   = 9
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 0.0         # بدون حظر للتذبذب — استغلال كل الفرص
+ADX_MIN: float     = 0.0         # بدون حظر للتذبذب
 
 
 # ──────────────────────────────────────────────────────────
-# 24/7 Operation — No Daily Caps
+# Daily Capital Protection
 # ──────────────────────────────────────────────────────────
 DAILY_GOAL_USD: float          = 99999.0
-MAX_DAILY_LOSS_USD: float      = 99999.0
-AUTO_PAUSE_ON_DAILY_LOSS: bool = False
+MAX_DAILY_LOSS_USD: float      = 8.00      # حماية رأس المال: إيقاف عند خسارة 8$ في اليوم
+AUTO_PAUSE_ON_DAILY_LOSS: bool = True
 
 
 # ──────────────────────────────────────────────────────────
@@ -104,5 +101,5 @@ AUTO_PAUSE_ON_DAILY_LOSS: bool = False
 SESSION_FILTER_ENABLED: bool = True
 BTC_SESSIONS: list = [(0, 24)]
 
-SCAN_INTERVAL_SEC: int = 2        # فحص كل ثانيتين
+SCAN_INTERVAL_SEC: int = 2
 MAGIC_NUMBER:      int = 998877

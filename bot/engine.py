@@ -231,7 +231,9 @@ class ScalperEngine:
         for symbol in config.SYMBOLS:
             try:
                 candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
-                htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
+                htf_tf = getattr(config, "HTF_TF", "M5")
+                htf_cnt = getattr(config, "HTF_CANDLES", 30)
+                htf_candles = mt5bridge.get_candles(symbol, timeframe=htf_tf, count=htf_cnt + 10)
                 if candles and len(candles) >= config.CANDLES_NEEDED:
                     result = analysis.analyze(candles, htf_candles=htf_candles)
                     self.last_signal[symbol] = result.get("signal", "WAIT")
@@ -388,7 +390,9 @@ class ScalperEngine:
             return
 
         candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
-        htf_candles = mt5bridge.get_candles(symbol, timeframe=config.HTF_TF, count=config.HTF_CANDLES + 10)
+        htf_tf = getattr(config, "HTF_TF", "M5")
+        htf_cnt = getattr(config, "HTF_CANDLES", 30)
+        htf_candles = mt5bridge.get_candles(symbol, timeframe=htf_tf, count=htf_cnt + 10)
 
         result = analysis.analyze(candles, htf_candles=htf_candles)
         self.last_signal[symbol] = result["signal"]
@@ -416,13 +420,14 @@ class ScalperEngine:
         if value_per_point <= 0:
             value_per_point = 0.001
 
-        # ── Dynamic TP calculation (ATR-based, capped $0.40 - $2.00) ──
-        raw_atr = result.get("dynamic_tp")  # raw ATR in price units
-        if raw_atr and value_per_point > 0:
-            atr_usd = raw_atr * value_per_point
+        # ── Dynamic TP calculation (ATR-based, profitable ratio R:R 1:2) ──
+        raw_atr = result.get("dynamic_tp")  # raw ATR in price units (e.g. 50.0)
+        if raw_atr and raw_atr > 0:
+            # raw_atr is price move in USD. On LOT_SIZE (0.01), 1 USD move = LOT_SIZE USD
+            atr_usd = raw_atr * config.LOT_SIZE
             dynamic_tp = atr_usd * getattr(config, "TP_ATR_MULT", 1.5)
-            tp_min = getattr(config, "TP_MIN_USD", 0.40)
-            tp_max = getattr(config, "TP_MAX_USD", 2.00)
+            tp_min = getattr(config, "TP_MIN_USD", 0.80)
+            tp_max = getattr(config, "TP_MAX_USD", 1.80)
             final_tp_usd = max(tp_min, min(tp_max, dynamic_tp))
         else:
             final_tp_usd = config.TAKE_PROFIT_USD
