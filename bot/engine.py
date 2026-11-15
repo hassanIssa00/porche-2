@@ -257,8 +257,8 @@ class ScalperEngine:
 
         daily_pnl = self._calc_daily_pnl()
 
-        # 3. Strict Daily Loss Guard
-        if daily_pnl <= -config.MAX_DAILY_LOSS_USD:
+        # 3. Daily Loss Guard (only active if enabled)
+        if getattr(config, "AUTO_PAUSE_ON_DAILY_LOSS", False) and daily_pnl <= -config.MAX_DAILY_LOSS_USD:
             logger.warning("Daily loss limit reached ($%.2f / $%.2f). Pausing entries.",
                            abs(daily_pnl), config.MAX_DAILY_LOSS_USD)
             self.last_error = f"أوقف التداول: تم الوصول للحد الأقصى للخسارة اليومية (${config.MAX_DAILY_LOSS_USD})"

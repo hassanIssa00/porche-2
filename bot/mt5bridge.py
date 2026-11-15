@@ -283,12 +283,25 @@ def open_trade(symbol: str, direction: str, lot: float,
     if tick is None:
         return {"success": False, "error": "No tick data"}
 
+    digits = int(getattr(sym_info, "digits", 2))
+    point = float(getattr(sym_info, "point", 0.01))
+
     if direction == "BUY":
         order_type = mt5.ORDER_TYPE_BUY
         price = tick.ask
+        # Ensure SL is strictly below current ask and TP strictly above
+        if sl > 0 and sl >= price:
+            sl = round(price - 50.0, digits)
+        if tp > 0 and tp <= price:
+            tp = round(price + 80.0, digits)
     else:
         order_type = mt5.ORDER_TYPE_SELL
         price = tick.bid
+        # Ensure SL is strictly above current bid and TP strictly below
+        if sl > 0 and sl <= price:
+            sl = round(price + 50.0, digits)
+        if tp > 0 and tp >= price:
+            tp = round(price - 80.0, digits)
 
     filling = _filling_mode(sym_info)
 

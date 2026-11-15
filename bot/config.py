@@ -88,11 +88,11 @@ ADX_MIN: float     = 0.0         # بدون حظر للتذبذب
 
 
 # ──────────────────────────────────────────────────────────
-# Daily Capital Protection
+# 24/7 Continuous Operation — No Daily Limits (لا يوجد أي حد يومي)
 # ──────────────────────────────────────────────────────────
-DAILY_GOAL_USD: float          = 99999.0
-MAX_DAILY_LOSS_USD: float      = 8.00      # حماية رأس المال: إيقاف عند خسارة 8$ في اليوم
-AUTO_PAUSE_ON_DAILY_LOSS: bool = True
+DAILY_GOAL_USD: float          = 99999.0   # بدون حد ربح يومي
+MAX_DAILY_LOSS_USD: float      = 99999.0   # بدون أي حد خسارة يومي نهائياً
+AUTO_PAUSE_ON_DAILY_LOSS: bool = False     # البوت شغال 24/7 مستمر بلا توقف
 
 
 # ──────────────────────────────────────────────────────────
