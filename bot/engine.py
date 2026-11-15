@@ -386,8 +386,8 @@ class ScalperEngine:
         if result["signal"] == analysis.SIGNAL_WAIT:
             return
 
-        logger.info("[%s] High-Probability Signal: %s (%d/6) — %s",
-                    symbol, result["signal"], result["score"], result["reason"])
+        logger.info("[%s] High-Probability Signal: %s (%d/%d) — %s",
+                    symbol, result["signal"], result["score"], result.get("max_score", 3), result["reason"])
 
         tick = mt5bridge.get_tick(symbol)
         sym_info = mt5bridge.get_symbol_info(symbol)
