@@ -34,51 +34,46 @@ LOT_SIZE: float = 0.01
 # Stop Loss & Take Profit — PROFITABLE MATHEMATICAL RATIO
 # ──────────────────────────────────────────────────────────
 
-# STOP LOSS: أقصى خسارة 0.50 دولار فقط (حماية صارمة لرأس المال)
-STOP_LOSS_USD: float = 0.50
+# STOP LOSS: أقصى خسارة 0.48 دولار فقط (صارم لرأس المال تحت 0.50$ دائماً)
+STOP_LOSS_USD: float = 0.48
 
-# TAKE PROFIT: أهداف ربح حقيقية من 0.80$ إلى 1.80$ (المتوسط 1.00$)
-TP_MIN_USD: float    = 0.80     # الحد الأدنى للربح (أعلى بكثير من السبريد)
-TP_MAX_USD: float    = 1.80     # أقصى هدف للموجة القوية
-TP_ATR_MULT: float   = 1.5      # الهدف = 1.5x ATR على الدقيقة
-TAKE_PROFIT_USD: float = 1.00   # الهدف الافتراضي (ضعف الستوب لوس: R:R = 1:2)
+# TAKE PROFIT: أهداف ربح سريعة متناسبة رياضياً (0.75$ - 0.90$)
+TP_MIN_USD: float    = 0.70     # الحد الأدنى للربح السريع
+TP_MAX_USD: float    = 1.10     # أقصى هدف للموجة
+TP_ATR_MULT: float   = 1.1      # الهدف = 1.1x ATR على الدقيقة
+TAKE_PROFIT_USD: float = 0.80   # الهدف الافتراضي (R:R = 1:1.67 نسبة ربحية موجبة رياضياً)
 
-# Breakeven: بعد تحقيق 0.55$ ربح يتم تحريك الستوب لنقطة الدخول + 0.10$ أرباح
-BREAKEVEN_TRIGGER_USD: float = 0.55
-BREAKEVEN_LOCK_USD: float    = 0.10
+# Breakeven: تم تعطيله لأن التذبذب الطبيعي للبيتكوين يضرب البريك إيفن قبل الهدف
+BREAKEVEN_TRIGGER_USD: float = 0.0
+BREAKEVEN_LOCK_USD: float    = 0.05
 
 # Fallback points
-SL_POINTS: int = 5000
-TP_POINTS: int = 10000
+SL_POINTS: int = 4800
+TP_POINTS: int = 8000
 
 
 # ──────────────────────────────────────────────────────────
-# Frequency & cooldown (حماية من النزيف وحرق السبريد)
+# Frequency & cooldown (صفقات متكررة وسريعة بكفاءة عالية)
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 60      # 60 ثانية بعد إغلاق الصفقة لانتظار شمعة جديدة
+TRADE_COOLDOWN_SEC: int = 15      # 15 ثانية بعد إغلاق الصفقة للدخول السريع في الفرصة التالية
 
 
 # ──────────────────────────────────────────────────────────
 # Fast M1 Analysis Settings
 # ──────────────────────────────────────────────────────────
 TREND_TF: str         = "M1"      # التايم فريم السريع M1
-TREND_FAST_EMA: int   = 7         # EMA 7 سريع
-TREND_SLOW_EMA: int   = 20        # EMA 20 خط الأساس
+TREND_FAST_EMA: int   = 21        # EMA 21 اتجاه المدى القصير
+TREND_SLOW_EMA: int   = 55        # EMA 55 خط الاتجاه العام
 RSI_PERIOD: int       = 14
-CANDLES_NEEDED: int   = 40
+CANDLES_NEEDED: int   = 60
 
 # Higher Timeframe settings
 HTF_TF: str           = "M5"
 HTF_CANDLES: int      = 30
 
-# Minimum EMA separation to avoid chop ($4 on BTC)
-MIN_EMA_DIFF: float   = 4.0
-MAX_EMA_DIFF: float   = 160.0       # أقصى تباعد لمنع الشراء/البيع في قمة الانفجار
-MAX_PRICE_EMA_GAP: float = 75.0     # أقصى مسافة للسعر عن EMA لمنع مطاردة القمم
-
-# Confluence score المطلوب للدخول (5 من 5: 4 مؤشرات + 3 شمعات متتالية)
-MIN_SIGNAL_SCORE: int = 5
+# Confluence score المطلوب للدخول (4 من 4 تأكيدات قناص القاع والقمة)
+MIN_SIGNAL_SCORE: int = 4
 
 # Indicators
 MACD_FAST: int     = 12

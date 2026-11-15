@@ -295,8 +295,8 @@ class ScalperEngine:
         symbol = pos["symbol"]
 
         # ── 1. Breakeven Protection ────────────────────────
-        # When profit reaches +$0.55, move SL to entry + $0.10
-        if not self._breakeven_set.get(ticket, False):
+        # Disabled when BREAKEVEN_TRIGGER_USD <= 0 to let winning trades breathe to full TP
+        if config.BREAKEVEN_TRIGGER_USD > 0 and not self._breakeven_set.get(ticket, False):
             if profit >= config.BREAKEVEN_TRIGGER_USD:
                 self._move_to_breakeven(pos)
 

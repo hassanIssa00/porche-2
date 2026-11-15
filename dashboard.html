@@ -51,7 +51,7 @@
         <div class="text-2xl">📊</div>
         <div>
           <h1 class="text-xl font-bold text-[var(--foreground)]">ISSSSMAIL Scalper Bot</h1>
-          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · سكالبر فائق السرعة <span class="text-green-400 font-bold">v6.0 (High-Confluence 4/4 Scalper 24/7)</span></p>
+          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · قناص القيعان والقمم <span class="text-green-400 font-bold">v8.0 (Sniper Trend Pullback Scalper 24/7)</span></p>
         </div>
       </div>
       <div class="text-left">
@@ -414,8 +414,14 @@ function updateSignals(analysis, cfg) {
         </div>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">EMA9 / EMA21</span>
+        <span class="text-[var(--muted-foreground)]">EMA21 / EMA55</span>
         <span>${fEma} / ${sEma}</span>
+      </div>
+      <div class="ind-row">
+        <span class="text-[var(--muted-foreground)]">Stochastic %K · %D</span>
+        <span class="${a.stoch_k != null && a.stoch_k <= 30 ? 'text-green-400 font-bold' : a.stoch_k != null && a.stoch_k >= 70 ? 'text-red-400 font-bold' : ''}">
+          ${a.stoch_k != null ? parseFloat(a.stoch_k).toFixed(1) : '—'} · ${a.stoch_d != null ? parseFloat(a.stoch_d).toFixed(1) : '—'}
+        </span>
       </div>
       <div class="ind-row">
         <span class="text-[var(--muted-foreground)]">RSI · ADX</span>
@@ -423,18 +429,14 @@ function updateSignals(analysis, cfg) {
         <span class="${parseFloat(adx) > 25 ? 'text-green-400' : 'text-orange-400'}">${adx}</span>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">MACD hist</span>
+        <span class="text-[var(--muted-foreground)]">MACD hist · ATR</span>
         <span class="${parseFloat(macd) > 0 ? 'text-green-400' : parseFloat(macd) < 0 ? 'text-red-400' : ''}">${macd}</span>
-      </div>
-      <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">BB Mid · ATR</span>
-        <span>${bbMid}</span>
         <span class="text-blue-400">${atr}</span>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">M5 Trend · M15 HTF</span>
+        <span class="text-[var(--muted-foreground)]">M1 Trend · M5 HTF</span>
         <span class="${trend==='UP'?'text-green-400':trend==='DOWN'?'text-red-400':'text-yellow-400'}">${trend}</span>
-        <span class="${htf==='BUY'?'text-green-400':htf==='SELL'?'text-red-400':'text-yellow-400'}">${htf}</span>
+        <span class="${htf==='UP'?'text-green-400':htf==='DOWN'?'text-red-400':'text-yellow-400'}">${htf}</span>
       </div>
     </div>`;
   }
