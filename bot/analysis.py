@@ -1,14 +1,15 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v5.5 — High-Quality M1 Analysis
-  محرك التحليل الفني — سكالبينج منضبط عالي الدقة على فريم M1
+  ISSSSMAIL SCALPER BOT v7.0 — 5-Point Confluence M1 Scalper
+  محرك التحليل الفني — 5 نقاط تأكيد + 3 شمعات متتالية
 =============================================================
 
 Rules for Profitable Scalping:
-  1. Direction: Clean EMA 7 / EMA 20 divergence (no tangled lines).
-  2. Candle Confirmation: Green candle for BUY, Red candle for SELL.
-  3. RSI Momentum: Active zone, avoiding tops (>72) and bottoms (<28).
-  4. Both BUY and SELL supported with zero directional bias.
+  1. EMA Divergence: EMA7 vs EMA20 clean separation ($4-$160).
+  2. Candle Confirmation: Green/Red candle aligned with EMA, within $75.
+  3. RSI Zones: BUY=50-70, SELL=30-50 (no overlap).
+  4. MACD Mandatory: Positive BUY / Negative SELL.
+  5. Candle Continuity: Last 3 candles all same color (momentum filter).
 """
 
 import logging
@@ -258,28 +259,51 @@ def analyze(
         b_reasons.append("MACD غير متاح")
         s_reasons.append("MACD غير متاح")
 
-    threshold = getattr(config, "MIN_SIGNAL_SCORE", 4)  # 4/4 required
+    # 5. Candle Continuity — Last 3 candles must be same color (momentum filter)
+    # يمنع الدخول في عكس اللحظة — لازم 3 شمعات متتالية بنفس الاتجاه
+    if len(closes) >= 4 and len(opens) >= 4:
+        c1_bull = closes[-2] > opens[-2]  # الشمعة قبل الأخيرة
+        c2_bull = closes[-3] > opens[-3]  # الشمعة قبلها
+        cur_bull = last_close > last_open  # الشمعة الأخيرة
+        cur_bear = last_close < last_open
+
+        if cur_bull and c1_bull and c2_bull:
+            b_score += 1
+            b_reasons.append("3 شمعات خضراء متتالية ↑ (Momentum)")
+            s_reasons.append("3 شمعات خضراء تمنع البيع ↑")
+        elif cur_bear and not c1_bull and not c2_bull:
+            s_score += 1
+            s_reasons.append("3 شمعات حمراء متتالية ↓ (Momentum)")
+            b_reasons.append("3 شمعات حمراء تمنع الشراء ↓")
+        else:
+            b_reasons.append("لا يوجد 3 شمعات متتالية خضراء (Momentum ضعيف)")
+            s_reasons.append("لا يوجد 3 شمعات متتالية حمراء (Momentum ضعيف)")
+    else:
+        b_reasons.append("بيانات غير كافية للشمعات")
+        s_reasons.append("بيانات غير كافية للشمعات")
+
+    threshold = getattr(config, "MIN_SIGNAL_SCORE", 5)  # 5/5 required now
 
     trend_str = "UP" if ema_diff > 0 else ("DOWN" if ema_diff < 0 else "FLAT")
 
     if b_score >= threshold and b_score > s_score:
         signal = SIGNAL_BUY
         score  = b_score
-        reason = f"BUY {b_score}/4 🚀 | " + " | ".join(b_reasons)
+        reason = f"BUY {b_score}/5 🚀 | " + " | ".join(b_reasons)
     elif s_score >= threshold and s_score > b_score:
         signal = SIGNAL_SELL
         score  = s_score
-        reason = f"SELL {s_score}/4 🔻 | " + " | ".join(s_reasons)
+        reason = f"SELL {s_score}/5 🔻 | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
         score  = max(b_score, s_score)
         detail = " | ".join(b_reasons) if b_score > s_score else " | ".join(s_reasons)
-        reason = f"WAIT ({max(b_score, s_score)}/4) | {detail}"
+        reason = f"WAIT ({max(b_score, s_score)}/5) | {detail}"
 
     return {
         "signal":       signal,
         "score":        score,
-        "max_score":    4,
+        "max_score":    5,
         "reason":       reason,
         "fast_ema":     round(fast_ema, 2),
         "slow_ema":     round(slow_ema, 2),
