@@ -118,9 +118,6 @@ class ScalperEngine:
         return "stopped"
 
     def get_status(self) -> dict:
-        if not mt5bridge.is_connected():
-            mt5bridge.connect()
-
         acc = mt5bridge.account_info() or {}
         positions = mt5bridge.get_open_positions(magic=config.MAGIC_NUMBER)
         daily_pnl = self._calc_daily_pnl()

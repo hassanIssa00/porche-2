@@ -181,74 +181,105 @@ def analyze(
     min_diff   = getattr(config, "MIN_EMA_DIFF", 4.0)
 
     # ══════════════════════════════════════════════════════
-    # 3-POINT CONFLUENCE SCORING
+    # 4-POINT CONFLUENCE SCORING (HIGH PROBABILITY M1 SCALPER)
     # ══════════════════════════════════════════════════════
     b_score, s_score = 0, 0
     b_reasons, s_reasons = [], []
 
-    # 1. EMA Divergence (avoid flat chop)
-    if ema_diff >= min_diff:
+    max_ema_gap = getattr(config, "MAX_EMA_DIFF", 160.0)
+    max_price_gap = getattr(config, "MAX_PRICE_EMA_GAP", 75.0)
+
+    # 1. EMA Divergence (avoid flat chop AND avoid buying/selling at extreme peaks)
+    if min_diff <= ema_diff <= max_ema_gap:
         b_score += 1
-        b_reasons.append(f"M1 EMA7({fast_ema:.1f}) > EMA20(+${ema_diff:.1f}) ↑")
-    elif ema_diff <= -min_diff:
+        b_reasons.append(f"M1 EMA7 > EMA20 (+${ema_diff:.1f}) ↑")
+    elif ema_diff > max_ema_gap:
+        b_reasons.append(f"EMA متباعدة جداً (+${ema_diff:.1f} > ${max_ema_gap:.0f} - ذروة شراء)")
+    elif -max_ema_gap <= ema_diff <= -min_diff:
         s_score += 1
-        s_reasons.append(f"M1 EMA7({fast_ema:.1f}) < EMA20(-${abs(ema_diff):.1f}) ↓")
+        s_reasons.append(f"M1 EMA7 < EMA20 (-${abs(ema_diff):.1f}) ↓")
+    elif ema_diff < -max_ema_gap:
+        s_reasons.append(f"EMA متباعدة جداً (-${abs(ema_diff):.1f} > ${max_ema_gap:.0f} - ذروة بيع)")
     else:
         b_reasons.append(f"EMA متقاربة (${abs(ema_diff):.1f} < ${min_diff:.1f})")
         s_reasons.append(f"EMA متقاربة (${abs(ema_diff):.1f} < ${min_diff:.1f})")
 
-    # 2. Candle Confirmation (green candle closing above EMA7 for BUY, red closing below EMA7 for SELL)
+    # 2. Candle Confirmation (Green close above EMA7 for BUY, Red close below EMA7 for SELL, within reasonable distance)
+    price_to_ema = abs(last_close - fast_ema)
     if last_close > last_open and last_close >= fast_ema:
-        b_score += 1
-        b_reasons.append("Bullish Green Candle close above EMA7 ↑")
-    elif last_close < last_open and last_close <= fast_ema:
-        s_score += 1
-        s_reasons.append("Bearish Red Candle close below EMA7 ↓")
-    else:
-        b_reasons.append("شمعة محايدة أو غير متوافقة")
-        s_reasons.append("شمعة محايدة أو غير متوافقة")
-
-    # 3. RSI Active Momentum Zone
-    if rsi_val is not None:
-        if 48.0 <= rsi_val <= 72.0:
+        if price_to_ema <= max_price_gap:
             b_score += 1
-            b_reasons.append(f"RSI={rsi_val} (bullish zone)")
-        elif 28.0 <= rsi_val <= 52.0:
-            s_score += 1
-            s_reasons.append(f"RSI={rsi_val} (bearish zone)")
+            b_reasons.append("Bullish Green Candle close above EMA7 ↑")
         else:
-            b_reasons.append(f"RSI={rsi_val} (منطقة ذروة)")
-            s_reasons.append(f"RSI={rsi_val} (منطقة ذروة)")
+            b_reasons.append(f"شمعة خضراء بعيدة عن EMA7 (${price_to_ema:.1f} > ${max_price_gap:.0f})")
+    else:
+        b_reasons.append("شمعة ليست خضراء أو تحت EMA7")
 
-    # 4. MACD Direction (Bonus info)
+    if last_close < last_open and last_close <= fast_ema:
+        if price_to_ema <= max_price_gap:
+            s_score += 1
+            s_reasons.append("Bearish Red Candle close below EMA7 ↓")
+        else:
+            s_reasons.append(f"شمعة حمراء بعيدة عن EMA7 (${price_to_ema:.1f} > ${max_price_gap:.0f})")
+    else:
+        s_reasons.append("شمعة ليست حمراء أو فوق EMA7")
+
+    # 3. RSI Active Momentum Zone (NO OVERLAP: 50-70 for BUY, 30-50 for SELL)
+    if rsi_val is not None:
+        if 50.0 <= rsi_val <= 70.0:
+            b_score += 1
+            b_reasons.append(f"RSI={rsi_val} (bullish zone 50-70)")
+        else:
+            b_reasons.append(f"RSI={rsi_val} (خارج منطقة الشراء 50-70)")
+
+        if 30.0 <= rsi_val <= 50.0:
+            s_score += 1
+            s_reasons.append(f"RSI={rsi_val} (bearish zone 30-50)")
+        else:
+            s_reasons.append(f"RSI={rsi_val} (خارج منطقة البيع 30-50)")
+    else:
+        b_reasons.append("RSI غير متاح")
+        s_reasons.append("RSI غير متاح")
+
+    # 4. MACD Direction Agreement (MANDATORY: positive for BUY, negative for SELL)
     if macd_hist is not None:
         if macd_hist > 0:
-            b_reasons.append(f"MACD +{macd_hist:.2f}")
+            b_score += 1
+            b_reasons.append(f"MACD Hist +{macd_hist:.2f} ↑")
+            s_reasons.append(f"MACD إيجابي (+{macd_hist:.2f} يمنع البيع)")
         elif macd_hist < 0:
-            s_reasons.append(f"MACD {macd_hist:.2f}")
+            s_score += 1
+            s_reasons.append(f"MACD Hist {macd_hist:.2f} ↓")
+            b_reasons.append(f"MACD سلبي ({macd_hist:.2f} يمنع الشراء)")
+        else:
+            b_reasons.append("MACD محايد (0)")
+            s_reasons.append("MACD محايد (0)")
+    else:
+        b_reasons.append("MACD غير متاح")
+        s_reasons.append("MACD غير متاح")
 
-    threshold = config.MIN_SIGNAL_SCORE  # = 3
+    threshold = getattr(config, "MIN_SIGNAL_SCORE", 4)  # 4/4 required
 
     trend_str = "UP" if ema_diff > 0 else ("DOWN" if ema_diff < 0 else "FLAT")
 
     if b_score >= threshold and b_score > s_score:
         signal = SIGNAL_BUY
         score  = b_score
-        reason = f"BUY {b_score}/3 🚀 | " + " | ".join(b_reasons)
+        reason = f"BUY {b_score}/4 🚀 | " + " | ".join(b_reasons)
     elif s_score >= threshold and s_score > b_score:
         signal = SIGNAL_SELL
         score  = s_score
-        reason = f"SELL {s_score}/3 🔻 | " + " | ".join(s_reasons)
+        reason = f"SELL {s_score}/4 🔻 | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
         score  = max(b_score, s_score)
         detail = " | ".join(b_reasons) if b_score > s_score else " | ".join(s_reasons)
-        reason = f"WAIT ({max(b_score, s_score)}/3) | {detail}"
+        reason = f"WAIT ({max(b_score, s_score)}/4) | {detail}"
 
     return {
         "signal":       signal,
         "score":        score,
-        "max_score":    3,
+        "max_score":    4,
         "reason":       reason,
         "fast_ema":     round(fast_ema, 2),
         "slow_ema":     round(slow_ema, 2),

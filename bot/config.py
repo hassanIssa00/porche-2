@@ -74,9 +74,11 @@ HTF_CANDLES: int      = 30
 
 # Minimum EMA separation to avoid chop ($4 on BTC)
 MIN_EMA_DIFF: float   = 4.0
+MAX_EMA_DIFF: float   = 160.0       # أقصى تباعد لمنع الشراء/البيع في قمة الانفجار
+MAX_PRICE_EMA_GAP: float = 75.0     # أقصى مسافة للسعر عن EMA لمنع مطاردة القمم
 
-# Confluence score المطلوب للدخول (3 من 3)
-MIN_SIGNAL_SCORE: int = 3
+# Confluence score المطلوب للدخول (4 من 4 مع تأكيد MACD الإلزامي)
+MIN_SIGNAL_SCORE: int = 4
 
 # Indicators
 MACD_FAST: int     = 12

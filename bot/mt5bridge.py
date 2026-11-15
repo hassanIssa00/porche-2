@@ -39,10 +39,27 @@ logger = logging.getLogger("issssmail.mt5bridge")
 # ──────────────────────────────────────────────────────────
 # Connection helpers
 # ──────────────────────────────────────────────────────────
+def is_terminal_process_running() -> bool:
+    """Check if MetaTrader 5 executable (terminal64.exe) is running."""
+    try:
+        import psutil
+        for p in psutil.process_iter(['name']):
+            name = p.info.get('name')
+            if name and 'terminal64' in name.lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def connect() -> bool:
     """Initialize and connect to MT5 terminal. Returns True on success."""
     if not _HAS_MT5:
         logger.error("MetaTrader5 package not installed.")
+        return False
+    # Never launch MT5 in hidden background mode if user hasn't opened it!
+    if not is_terminal_process_running():
+        logger.warning("MT5 process (terminal64.exe) is not running on desktop. Waiting for user to open MT5.")
         return False
     if mt5.initialize():
         ti = mt5.terminal_info()
