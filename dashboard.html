@@ -352,6 +352,10 @@ function updateBotStatus(d) {
     dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 pulse';
     txt.textContent = `البوت يعمل · دورة #${d.loop_count || 0}`;
     txt.className = 'font-medium text-green-400';
+  } else if (status === 'CONNECTING' || status === 'STARTING') {
+    dot.className = 'w-2.5 h-2.5 rounded-full bg-yellow-500 pulse';
+    txt.textContent = 'جاري الاتصال بـ MT5 والسيرفر...';
+    txt.className = 'font-medium text-yellow-400';
   } else if (status === 'ERROR') {
     dot.className = 'w-2.5 h-2.5 rounded-full bg-red-500 pulse';
     txt.textContent = 'خطأ في البوت';

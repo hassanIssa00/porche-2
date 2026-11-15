@@ -92,17 +92,14 @@ class ScalperEngine:
         with self._lock:
             if self._running:
                 return "already_running"
-            if not mt5bridge.connect():
-                self.status = "ERROR"
-                self.last_error = "Cannot connect to MT5. Make sure MT5 is running."
-                return "mt5_error"
             self._running = True
-            self.status = "RUNNING"
+            self.status = "CONNECTING"
+            self.last_error = ""
             self._state["session_start"] = datetime.datetime.now().isoformat()
             _save_state(self._state)
             self._thread = threading.Thread(target=self._loop, daemon=True, name="ScalperBot")
             self._thread.start()
-            logger.info("Bot started v3.0 (Disciplined Pullback Scalper)")
+            logger.info("Bot started background loop.")
             return "started"
 
     def stop(self) -> str:
@@ -241,10 +238,12 @@ class ScalperEngine:
     def _tick(self):
         if not mt5bridge.is_connected():
             if not mt5bridge.connect():
-                self.status = "ERROR"
-                self.last_error = "MT5 disconnected"
+                self.status = "CONNECTING"
+                self.last_error = "في انتظار الاتصال بميتاتريدر وسيرفر التداول..."
+                time.sleep(2)
                 return
             self.status = "RUNNING"
+            self.last_error = ""
 
         # 1. Continuous Market Analysis for ALL active symbols
         self._update_all_analysis()
@@ -296,37 +295,26 @@ class ScalperEngine:
         symbol = pos["symbol"]
 
         # ── 1. Breakeven Protection ────────────────────────
-        # When profit reaches +$1.50, move SL to entry + $0.30
+        # When profit reaches +$0.55, move SL to entry + $0.10
         if not self._breakeven_set.get(ticket, False):
             if profit >= config.BREAKEVEN_TRIGGER_USD:
                 self._move_to_breakeven(pos)
 
-        # ── 2. Take Profit & Stop Loss ─────────────────────
-        should_close = False
-        reason = ""
-
-        if profit >= config.TAKE_PROFIT_USD:
-            should_close = True
-            reason = f"TP Hit: +${profit:.2f} 🎯"
-        elif profit <= -config.STOP_LOSS_USD:
-            should_close = True
-            reason = f"SL Hit: -${abs(profit):.2f} ❌"
-
-        if should_close:
-            logger.info("Closing position %s #%d — %s", symbol, ticket, reason)
+        # ── 2. Fallback only if order has NO Stop Loss on broker ──
+        # All orders have broker-side SL/TP. Only close manually if SL was missing:
+        pos_sl = float(pos.get("sl") or 0.0)
+        if pos_sl == 0.0 and profit <= -config.STOP_LOSS_USD:
+            logger.info("Closing position without broker SL %s #%d — -$%.2f", symbol, ticket, abs(profit))
             res = mt5bridge.close_position(
                 ticket=ticket,
                 symbol=symbol,
                 lot=pos["volume"],
                 pos_type=pos["type"]
             )
-            if res["success"]:
+            if res.get("success"):
                 self._breakeven_set.pop(ticket, None)
                 self._last_close_time = time.time()
-                self._record_closed_trade(pos, profit, reason)
-                logger.info("Position #%d closed. Starting %ds cooldown.", ticket, config.TRADE_COOLDOWN_SEC)
-            else:
-                logger.warning("Failed to close position #%d: %s", ticket, res.get("error"))
+                self._record_closed_trade(pos, profit, f"Manual SL: -${abs(profit):.2f}")
 
     def _move_to_breakeven(self, pos: dict):
         """Move Stop Loss to entry price + small buffer to lock in profit."""

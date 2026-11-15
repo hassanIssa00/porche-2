@@ -19,6 +19,7 @@ import json
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 
 from bot.engine import ScalperEngine
@@ -28,6 +29,12 @@ _engine  = ScalperEngine()
 
 HOST = "127.0.0.1"
 PORT = 8765
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """Handle each HTTP request in a separate thread so status polling never blocks."""
+    daemon_threads = True
+    allow_reuse_address = True
 
 
 # ──────────────────────────────────────────────────────────
@@ -108,10 +115,8 @@ class BotHandler(BaseHTTPRequestHandler):
 # Server start
 # ──────────────────────────────────────────────────────────
 def run_server():
-    # allow_reuse_address prevents "Address already in use" on quick restart
-    HTTPServer.allow_reuse_address = True
-    server = HTTPServer((HOST, PORT), BotHandler)
-    logger.info("API server listening on http://%s:%d", HOST, PORT)
+    server = ThreadedHTTPServer((HOST, PORT), BotHandler)
+    logger.info("API server listening on http://%s:%d (Threaded)", HOST, PORT)
     server.serve_forever()
 
 

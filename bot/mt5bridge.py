@@ -39,11 +39,32 @@ logger = logging.getLogger("issssmail.mt5bridge")
 # ──────────────────────────────────────────────────────────
 # Connection helpers
 # ──────────────────────────────────────────────────────────
+def is_connected() -> bool:
+    if not _HAS_MT5:
+        return False
+    try:
+        ti = mt5.terminal_info()
+        return ti is not None and bool(ti.connected)
+    except Exception:
+        return False
+
+
 def connect() -> bool:
     """Initialize and connect to MT5 terminal. Returns True on success."""
     if not _HAS_MT5:
         logger.error("MetaTrader5 package not installed.")
         return False
+    try:
+        ti = mt5.terminal_info()
+        if ti is not None and ti.connected:
+            return True
+        if ti is not None and not ti.connected:
+            # Terminal already attached, waiting for broker connection
+            logger.warning("MT5 terminal attached, waiting for broker connection...")
+            return False
+    except Exception:
+        pass
+
     if mt5.initialize():
         ti = mt5.terminal_info()
         if ti and ti.connected:
@@ -56,16 +77,6 @@ def connect() -> bool:
 def disconnect() -> None:
     if _HAS_MT5:
         mt5.shutdown()
-
-
-def is_connected() -> bool:
-    if not _HAS_MT5:
-        return False
-    try:
-        ti = mt5.terminal_info()
-        return ti is not None and bool(ti.connected)
-    except Exception:
-        return False
 
 
 # ──────────────────────────────────────────────────────────
