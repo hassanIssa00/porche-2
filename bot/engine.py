@@ -394,6 +394,13 @@ class ScalperEngine:
         if not tick or not sym_info:
             return
 
+        # Spread check — protect against broker widening
+        spread = tick["ask"] - tick["bid"]
+        max_spread = getattr(config, "MAX_SPREAD_USD", 7.50)
+        if spread > max_spread:
+            logger.warning("[%s] Spread too wide ($%.2f > $%.2f). Skipping entry.", symbol, spread, max_spread)
+            return
+
         point = float(getattr(sym_info, "point", 0.001))
         digits = int(getattr(sym_info, "digits", 3))
         tick_value = float(getattr(sym_info, "trade_tick_value", 0.0))
@@ -405,14 +412,13 @@ class ScalperEngine:
         if value_per_point <= 0:
             value_per_point = 0.001
 
-        # ── Dynamic TP calculation (ATR-based, profitable ratio R:R 1:2) ──
-        raw_atr = result.get("dynamic_tp")  # raw ATR in price units (e.g. 50.0)
+        # ── Dynamic TP calculation (ATR-based, profitable ratio R:R 1:1.70) ──
+        raw_atr = result.get("dynamic_tp")
         if raw_atr and raw_atr > 0:
-            # raw_atr is price move in USD. On LOT_SIZE (0.01), 1 USD move = LOT_SIZE USD
             atr_usd = raw_atr * config.LOT_SIZE
-            dynamic_tp = atr_usd * getattr(config, "TP_ATR_MULT", 1.5)
-            tp_min = getattr(config, "TP_MIN_USD", 0.80)
-            tp_max = getattr(config, "TP_MAX_USD", 1.80)
+            dynamic_tp = atr_usd * getattr(config, "TP_ATR_MULT", 1.2)
+            tp_min = getattr(config, "TP_MIN_USD", 0.75)
+            tp_max = getattr(config, "TP_MAX_USD", 1.05)
             final_tp_usd = max(tp_min, min(tp_max, dynamic_tp))
         else:
             final_tp_usd = config.TAKE_PROFIT_USD

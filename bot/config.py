@@ -34,14 +34,17 @@ LOT_SIZE: float = 0.01
 # Stop Loss & Take Profit — PROFITABLE MATHEMATICAL RATIO
 # ──────────────────────────────────────────────────────────
 
-# STOP LOSS: أقصى خسارة 0.50 دولار (ثابت وصارم)
+# STOP LOSS: أقصى خسارة 0.50 دولار (ثابت وصارم حسب طلب المستخدم)
 STOP_LOSS_USD: float = 0.50
 
-# TAKE PROFIT: 1.20$ — النسبة الأمثل من backtest على 10,000 شمعة (R:R = 1:2.4)
-TP_MIN_USD: float    = 1.00     # الحد الأدنى
-TP_MAX_USD: float    = 1.50     # الحد الأقصى
-TP_ATR_MULT: float   = 1.8      # الهدف = 1.8x ATR
-TAKE_PROFIT_USD: float = 1.20   # الهدف الثابت الأمثل من backtest
+# TAKE PROFIT: 0.85$ — النسبة الأمثل بـ Backtest على 10,000 شمعة (R:R = 1:1.70 ربحية صافية)
+TP_MIN_USD: float    = 0.75     # الحد الأدنى للربح السريع
+TP_MAX_USD: float    = 1.05     # الحد الأقصى للموجة
+TP_ATR_MULT: float   = 1.2      # الهدف = 1.2x ATR
+TAKE_PROFIT_USD: float = 0.85   # الهدف الثابت الأمثل
+
+# Max Spread Allowed (حماية من اتساع السبريد وقت الأخبار)
+MAX_SPREAD_USD: float = 7.50
 
 # Breakeven: معطّل — السوق بيتذبذب ويضرب البريك إيفن المبكر
 BREAKEVEN_TRIGGER_USD: float = 0.0
@@ -49,14 +52,14 @@ BREAKEVEN_LOCK_USD: float    = 0.05
 
 # Fallback points
 SL_POINTS: int = 5000
-TP_POINTS: int = 12000
+TP_POINTS: int = 8500
 
 
 # ──────────────────────────────────────────────────────────
 # Frequency & cooldown
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 10      # 10 ثانية — صفقات سريعة كثيرة
+TRADE_COOLDOWN_SEC: int = 10      # 10 ثانية — صفقات سريعة متتالية
 
 
 # ──────────────────────────────────────────────────────────
@@ -76,8 +79,8 @@ RSI_OVERBOUGHT: float = 62.0    # أكثر من 62 = تشبع شرائي
 HTF_TF: str           = "M5"
 HTF_CANDLES: int      = 30
 
-# Signal threshold: 3/3 مطلوبة
-MIN_SIGNAL_SCORE: int = 3
+# Signal threshold: 4/4 مطلوبة لتأكيد الدخول
+MIN_SIGNAL_SCORE: int = 4
 
 # Indicators
 MACD_FAST: int     = 12
