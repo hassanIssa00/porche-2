@@ -226,7 +226,7 @@ class ScalperEngine:
             try:
                 candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
                 htf_tf = getattr(config, "HTF_TF", "M5")
-                htf_cnt = getattr(config, "HTF_CANDLES", 30)
+                htf_cnt = getattr(config, "HTF_CANDLES", 120)
                 htf_candles = mt5bridge.get_candles(symbol, timeframe=htf_tf, count=htf_cnt + 10)
                 if candles and len(candles) >= config.CANDLES_NEEDED:
                     result = analysis.analyze(candles, htf_candles=htf_candles)
@@ -376,7 +376,7 @@ class ScalperEngine:
 
         candles = mt5bridge.get_candles(symbol, timeframe=config.TREND_TF, count=config.CANDLES_NEEDED + 20)
         htf_tf = getattr(config, "HTF_TF", "M5")
-        htf_cnt = getattr(config, "HTF_CANDLES", 30)
+        htf_cnt = getattr(config, "HTF_CANDLES", 120)
         htf_candles = mt5bridge.get_candles(symbol, timeframe=htf_tf, count=htf_cnt + 10)
 
         result = analysis.analyze(candles, htf_candles=htf_candles)

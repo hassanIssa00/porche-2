@@ -77,7 +77,7 @@ RSI_OVERBOUGHT: float = 62.0    # أكثر من 62 = تشبع شرائي
 
 # Higher Timeframe settings
 HTF_TF: str           = "M5"
-HTF_CANDLES: int      = 30
+HTF_CANDLES: int      = 120
 
 # Signal threshold: 4/4 مطلوبة لتأكيد الدخول
 MIN_SIGNAL_SCORE: int = 4

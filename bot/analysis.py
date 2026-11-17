@@ -194,10 +194,11 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
 
     # 4. M5 HTF Trend (M5 EMA20 vs EMA50)
     htf_bias = "NEUTRAL"
-    if htf_candles and len(htf_candles) >= 25:
+    if htf_candles and len(htf_candles) >= 30:
         htf_c = [float(c["close"]) for c in htf_candles]
         h20 = _ema(htf_c, 20)
-        h50 = _ema(htf_c, 50)
+        slow_period = 50 if len(htf_c) >= 55 else min(35, len(htf_c) - 2)
+        h50 = _ema(htf_c, slow_period)
         if h20 and h50 and len(h20) > 0 and len(h50) > 0:
             if h20[-1] > h50[-1]:
                 htf_bias = "UP"
