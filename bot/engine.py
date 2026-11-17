@@ -242,8 +242,8 @@ class ScalperEngine:
                 self.last_error = "في انتظار الاتصال بميتاتريدر وسيرفر التداول..."
                 time.sleep(2)
                 return
-            self.status = "RUNNING"
-            self.last_error = ""
+        self.status = "RUNNING"
+        self.last_error = ""
 
         # 1. Continuous Market Analysis for ALL active symbols
         self._update_all_analysis()
