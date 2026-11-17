@@ -227,32 +227,32 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
         b_reasons.append("اتجاه M5 محايد")
         s_reasons.append("اتجاه M5 محايد")
 
-    # Point 2: M1 RSI Reversal Turn
+    # Point 2: M1 Trend-Pullback Reversal (ارتداد السعر داخل الاتجاه)
+    # في الاتجاه الصاعد: السعر هبط في تصحيح ويبدأ بالصعود مجدداً
+    # في الاتجاه الهابط: السعر ارتد لأعلى في تصحيح ويبدأ بالهبوط مجدداً
     rsi_turning_up = (
-        rsi_prev2 is not None and rsi_prev is not None and rsi_cur is not None
-        and rsi_prev2 < RSI_OVERSOLD
-        and rsi_prev  > rsi_prev2
-        and rsi_cur   > rsi_prev
+        rsi_prev is not None and rsi_cur is not None
+        and (rsi_prev < 52.0 or (stoch_k is not None and stoch_k < 45.0))
+        and rsi_cur > rsi_prev
     )
     rsi_turning_dn = (
-        rsi_prev2 is not None and rsi_prev is not None and rsi_cur is not None
-        and rsi_prev2 > RSI_OVERBOUGHT
-        and rsi_prev  < rsi_prev2
-        and rsi_cur   < rsi_prev
+        rsi_prev is not None and rsi_cur is not None
+        and (rsi_prev > 45.0 or (stoch_k is not None and stoch_k > 55.0))
+        and rsi_cur < rsi_prev
     )
 
     rsi_str = f"{rsi_cur:.1f}" if rsi_cur is not None else "?"
     if rsi_turning_up:
         b_score += 1
-        b_reasons.append(f"RSI ارتد من القاع ({rsi_prev2:.1f}→{rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
+        b_reasons.append(f"انتهاء التصحيح وبدء الصعود (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
     else:
-        b_reasons.append(f"RSI ليس في قاع ارتدادي (RSI={rsi_str})")
+        b_reasons.append(f"لم ينته التصحيح الهابط بعد (RSI={rsi_str})")
 
     if rsi_turning_dn:
         s_score += 1
-        s_reasons.append(f"RSI ارتد من القمة ({rsi_prev2:.1f}→{rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
+        s_reasons.append(f"انتهاء الارتداد وبدء الهبوط (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
     else:
-        s_reasons.append(f"RSI ليس في قمة ارتدادية (RSI={rsi_str})")
+        s_reasons.append(f"لم ينته الارتداد الصاعد بعد (RSI={rsi_str})")
 
     # Point 3: MACD Momentum Direction
     macd_turning_up = (macd_cur is not None and macd_prev is not None and macd_cur > macd_prev)
