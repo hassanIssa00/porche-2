@@ -51,7 +51,7 @@
         <div class="text-2xl">📊</div>
         <div>
           <h1 class="text-xl font-bold text-[var(--foreground)]">ISSSSMAIL Scalper Bot</h1>
-          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · قناص الارتداد مع الاتجاه <span class="text-green-400 font-bold">v10.0 (Trend Reversal Scalper 24/7)</span></p>
+          <p class="text-xs text-[var(--muted-foreground)]">بيتكوين فقط · قناص البولنجر باند وقاطع الدائرة الذكي <span class="text-green-400 font-bold">v11.0 (Smart Scalper 24/7)</span></p>
         </div>
       </div>
       <div class="text-left">
@@ -60,6 +60,20 @@
           <span id="conn-text">جاري الاتصال…</span>
         </div>
         <p id="ts" class="text-xs text-[var(--muted-foreground)] mt-1 text-left">—</p>
+      </div>
+    </div>
+
+    <!-- CIRCUIT BREAKER PROTECTION BANNER -->
+    <div id="cb-banner" class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span id="cb-dot" class="w-3 h-3 rounded-full bg-green-500"></span>
+        <div>
+          <p id="cb-title" class="text-xs font-bold text-green-400">🛡️ قاطع الدائرة الذكي: نشط وبكامل طاقته</p>
+          <p id="cb-desc" class="text-xs text-[var(--muted-foreground)]">يحمي الحساب من الهبوط أو الصعود المعاكس ويمنع تكرار الصفقات الخاسرة فوراً</p>
+        </div>
+      </div>
+      <div id="cb-badge" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-green-950/40 text-green-300 border border-green-800/40">
+        🟢 كل الاتجاهات متاحة
       </div>
     </div>
 
@@ -288,6 +302,7 @@ async function refresh() {
     updatePositions(d.open_positions || []);
     updateTrades(d.trades || [], d.trade_count);
     updateStats(d.stats, d.risk);
+    updateCircuitBreaker(d.circuit_breaker);
 
     hideMsg('error-box');
   } catch(e) {
@@ -396,6 +411,10 @@ function updateSignals(analysis, cfg) {
     const fEma   = a.fast_ema != null ? parseFloat(a.fast_ema).toFixed(2) : '—';
     const sEma   = a.slow_ema != null ? parseFloat(a.slow_ema).toFixed(2) : '—';
 
+    const bbUp   = a.bb_upper != null ? parseFloat(a.bb_upper).toFixed(1) : '—';
+    const bbMid  = a.bb_mid != null ? parseFloat(a.bb_mid).toFixed(1) : '—';
+    const bbLow  = a.bb_lower != null ? parseFloat(a.bb_lower).toFixed(1) : '—';
+
     const badgeCls = sig === 'BUY' ? 'badge-buy' : sig === 'SELL' ? 'badge-sell' : 'badge-wait';
     const sigLabel = sig === 'BUY' ? '▲ شراء' : sig === 'SELL' ? '▼ بيع' : '⏸ انتظار';
     const dots = scoreDots(score, maxS);
@@ -414,29 +433,21 @@ function updateSignals(analysis, cfg) {
         </div>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">EMA21 / EMA55</span>
-        <span>${fEma} / ${sEma}</span>
+        <span class="text-[var(--muted-foreground)]">قاع / وسط / قمة البولنجر</span>
+        <span class="text-xs font-mono">${bbLow} / ${bbMid} / ${bbUp}</span>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">Stochastic %K · %D</span>
-        <span class="${a.stoch_k != null && a.stoch_k <= 30 ? 'text-green-400 font-bold' : a.stoch_k != null && a.stoch_k >= 70 ? 'text-red-400 font-bold' : ''}">
-          ${a.stoch_k != null ? parseFloat(a.stoch_k).toFixed(1) : '—'} · ${a.stoch_d != null ? parseFloat(a.stoch_d).toFixed(1) : '—'}
-        </span>
+        <span class="text-[var(--muted-foreground)]">RSI (14) · عزم الماكد</span>
+        <span class="${parseFloat(rsi) > 60 ? 'text-red-400 font-bold' : parseFloat(rsi) < 40 ? 'text-green-400 font-bold' : ''}">${rsi}</span>
+        <span class="${parseFloat(macd) > 0 ? 'text-green-400 font-bold' : parseFloat(macd) < 0 ? 'text-red-400 font-bold' : ''}">${macd}</span>
       </div>
       <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">RSI · ADX</span>
-        <span class="${parseFloat(rsi) > 65 ? 'text-red-400' : parseFloat(rsi) < 35 ? 'text-green-400' : ''}">${rsi}</span>
-        <span class="${parseFloat(adx) > 25 ? 'text-green-400' : 'text-orange-400'}">${adx}</span>
+        <span class="text-[var(--muted-foreground)]">اتجاه M1 · اتجاه M5</span>
+        <span class="${trend==='UP'?'text-green-400 font-bold':trend==='DOWN'?'text-red-400 font-bold':'text-yellow-400'}">${trend}</span>
+        <span class="${htf==='UP'?'text-green-400 font-bold':htf==='DOWN'?'text-red-400 font-bold':'text-yellow-400'}">${htf}</span>
       </div>
-      <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">MACD hist · ATR</span>
-        <span class="${parseFloat(macd) > 0 ? 'text-green-400' : parseFloat(macd) < 0 ? 'text-red-400' : ''}">${macd}</span>
-        <span class="text-blue-400">${atr}</span>
-      </div>
-      <div class="ind-row">
-        <span class="text-[var(--muted-foreground)]">M1 Trend · M5 HTF</span>
-        <span class="${trend==='UP'?'text-green-400':trend==='DOWN'?'text-red-400':'text-yellow-400'}">${trend}</span>
-        <span class="${htf==='UP'?'text-green-400':htf==='DOWN'?'text-red-400':'text-yellow-400'}">${htf}</span>
+      <div class="mt-2 text-[11px] text-[var(--muted-foreground)] bg-[var(--background)] p-1.5 rounded border border-[var(--border)] leading-relaxed">
+        ${a.reason || '—'}
       </div>
     </div>`;
   }
@@ -518,6 +529,46 @@ function updateStats(stats, risk) {
     const streak = risk.consecutive_losses || 0;
     el('stat-streak').textContent = streak;
     el('stat-streak').className = `text-base font-bold ${streak >= 2 ? 'text-red-400 pulse' : 'text-orange-400'}`;
+  }
+}
+
+// ── Circuit Breaker Banner ──────────────────────────────
+function updateCircuitBreaker(cb) {
+  if (!cb) return;
+  const dot = el('cb-dot');
+  const title = el('cb-title');
+  const desc = el('cb-desc');
+  const badge = el('cb-badge');
+  if (!dot || !title || !desc || !badge) return;
+
+  if (cb.overall_locked) {
+    dot.className = 'w-3 h-3 rounded-full bg-red-500 pulse';
+    title.className = 'text-xs font-bold text-red-400';
+    title.textContent = '🚨 قاطع الدائرة الإجمالي مفعل: توقف مؤقت لحماية الرصيد';
+    desc.textContent = `تم تسجيل ${cb.consec_total_losses} خسائر متتالية. التوقف سينتهي بعد ${cb.overall_lock_remaining_sec} ثانية.`;
+    badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-red-950/40 text-red-300 border border-red-800/40';
+    badge.textContent = `توقف مؤقت (${cb.overall_lock_remaining_sec}s)`;
+  } else if (cb.sell_locked) {
+    dot.className = 'w-3 h-3 rounded-full bg-orange-500 pulse';
+    title.className = 'text-xs font-bold text-orange-400';
+    title.textContent = '🛡️ حماية اتجاه البيع: تم إيقاف صفقات البيع SELL مؤقتاً';
+    desc.textContent = `تم منع البيع لأن السوق في صعود معاكس (خسارتين بيع متتاليتين). الإيقاف سينتهي بعد ${cb.sell_lock_remaining_sec} ثانية.`;
+    badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-orange-950/40 text-orange-300 border border-orange-800/40';
+    badge.textContent = `قفل البيع (${cb.sell_lock_remaining_sec}s)`;
+  } else if (cb.buy_locked) {
+    dot.className = 'w-3 h-3 rounded-full bg-orange-500 pulse';
+    title.className = 'text-xs font-bold text-orange-400';
+    title.textContent = '🛡️ حماية اتجاه الشراء: تم إيقاف صفقات الشراء BUY مؤقتاً';
+    desc.textContent = `تم منع الشراء لأن السوق في هبوط معاكس (خسارتين شراء متتاليتين). الإيقاف سينتهي بعد ${cb.buy_lock_remaining_sec} ثانية.`;
+    badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-orange-950/40 text-orange-300 border border-orange-800/40';
+    badge.textContent = `قفل الشراء (${cb.buy_lock_remaining_sec}s)`;
+  } else {
+    dot.className = 'w-3 h-3 rounded-full bg-green-500';
+    title.className = 'text-xs font-bold text-green-400';
+    title.textContent = '🟢 قاطع الدائرة الذكي: مستعد ومراقب';
+    desc.textContent = 'أي خسارتين متتاليتين في اتجاه واحد تؤدي لإيقافه فوراً 20 دقيقة لمنع الصفقات المعاكسة.';
+    badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-lg bg-green-950/40 text-green-300 border border-green-800/40';
+    badge.textContent = '🟢 كل الاتجاهات متاحة';
   }
 }
 

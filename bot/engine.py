@@ -67,8 +67,11 @@ class ScalperEngine:
         # Breakeven tracking per ticket {ticket: bool}
         self._breakeven_set: dict[int, bool] = {}
 
-        # Consecutive loss protection
+        # Consecutive loss protection & Directional Circuit Breaker
         self._consecutive_losses: int = 0
+        self._consec_dir_losses: dict[str, int] = {"BUY": 0, "SELL": 0}
+        self._dir_lock_until: dict[str, float] = {"BUY": 0.0, "SELL": 0.0}
+        self._overall_lock_until: float = 0.0
 
         self._state = _load_state()
         if self._state.get("session_start") is None:
@@ -123,12 +126,17 @@ class ScalperEngine:
         # Remaining cooldown seconds
         remaining_cd = max(0, int(config.TRADE_COOLDOWN_SEC - (time.time() - self._last_close_time)))
 
+        now = time.time()
+        buy_lock_rem = max(0, int(self._dir_lock_until.get("BUY", 0.0) - now))
+        sell_lock_rem = max(0, int(self._dir_lock_until.get("SELL", 0.0) - now))
+        overall_lock_rem = max(0, int(self._overall_lock_until - now))
+
         return {
             "bot_status": self.status,
             "connected": mt5bridge.is_connected(),
             "last_error": self.last_error,
             "loop_count": self.loop_count,
-            "version": "3.0",
+            "version": "11.0",
             "account": {
                 "balance": acc.get("balance", 0.0),
                 "equity": acc.get("equity", 0.0),
@@ -156,6 +164,17 @@ class ScalperEngine:
             "risk": {
                 "cooldown_remaining_sec": remaining_cd,
                 "max_daily_loss": config.MAX_DAILY_LOSS_USD,
+            },
+            "circuit_breaker": {
+                "buy_locked": buy_lock_rem > 0,
+                "buy_lock_remaining_sec": buy_lock_rem,
+                "sell_locked": sell_lock_rem > 0,
+                "sell_lock_remaining_sec": sell_lock_rem,
+                "overall_locked": overall_lock_rem > 0,
+                "overall_lock_remaining_sec": overall_lock_rem,
+                "consec_buy_losses": self._consec_dir_losses.get("BUY", 0),
+                "consec_sell_losses": self._consec_dir_losses.get("SELL", 0),
+                "consec_total_losses": self._consecutive_losses,
             },
             "config": {
                 "symbols": config.SYMBOLS,
@@ -386,6 +405,21 @@ class ScalperEngine:
         if result["signal"] == analysis.SIGNAL_WAIT:
             return
 
+        now = time.time()
+        # 1. Overall Circuit Breaker check
+        if now < self._overall_lock_until:
+            remaining = int(self._overall_lock_until - now)
+            logger.info("[%s] All trading paused: Circuit Breaker active (%ds remaining)", symbol, remaining)
+            return
+
+        # 2. Directional Circuit Breaker check
+        sig_dir = "BUY" if result["signal"] == analysis.SIGNAL_BUY else "SELL"
+        if now < self._dir_lock_until.get(sig_dir, 0.0):
+            remaining = int(self._dir_lock_until[sig_dir] - now)
+            logger.info("[%s] %s signal skipped: Direction locked for %ds (قاطع الدائرة الذكي لمنع تكرار الخسائر)",
+                        symbol, sig_dir, remaining)
+            return
+
         logger.info("[%s] High-Probability Signal: %s (%d/%d) — %s",
                     symbol, result["signal"], result["score"], result.get("max_score", 3), result["reason"])
 
@@ -502,38 +536,68 @@ class ScalperEngine:
                     matched = True
                     changed = True
                     self._last_close_time = time.time()
-                    self._update_stats(profit)
+                    pos_type = t.get("type", "")
+                    self._update_stats(profit, pos_type)
                     break
 
             if not matched:
+                pos_type = deal.get("type", "")
+                if pos_type not in ("BUY", "SELL"):
+                    pos_type = "SELL" if deal.get("type") == 0 else "BUY"
                 trades.append({
                     "ticket": deal["position_id"],
                     "deal_ticket": deal["ticket"],
                     "symbol": deal["symbol"],
-                    "type": deal["type"],
+                    "type": pos_type,
                     "profit": profit,
                     "reason": reason,
                     "time": deal["time"],
                 })
-                self._update_stats(profit)
+                self._update_stats(profit, pos_type)
                 self._last_close_time = time.time()
                 changed = True
 
         if changed:
             _save_state(self._state)
 
-    def _update_stats(self, profit: float):
+    def _update_stats(self, profit: float, pos_type: str = ""):
         stats = self._state.setdefault("stats", {"total_wins": 0, "total_losses": 0, "total_profit": 0.0, "total_loss": 0.0})
+        now = time.time()
         if profit >= 0:
             stats["total_wins"] = stats.get("total_wins", 0) + 1
             stats["total_profit"] = stats.get("total_profit", 0.0) + profit
             self._consecutive_losses = 0   # reset on win
+            if pos_type in self._consec_dir_losses:
+                self._consec_dir_losses[pos_type] = 0
+            logger.info("Trade WIN: +$%.2f ✓ [Consecutive %s losses reset to 0]", profit, pos_type or "all")
         else:
             stats["total_losses"] = stats.get("total_losses", 0) + 1
             stats["total_loss"] = stats.get("total_loss", 0.0) + abs(profit)
             self._consecutive_losses += 1
-            if self._consecutive_losses >= 2:
-                logger.warning("Consecutive losses: %d — cooldown extended!", self._consecutive_losses)
+
+            if pos_type in self._consec_dir_losses:
+                self._consec_dir_losses[pos_type] += 1
+                consec = self._consec_dir_losses[pos_type]
+                threshold = getattr(config, "CIRCUIT_BREAKER_CONSEC", 2)
+                if consec >= threshold:
+                    lock_sec = getattr(config, "CIRCUIT_BREAKER_LOCK_SEC", 1200)
+                    self._dir_lock_until[pos_type] = now + lock_sec
+                    logger.warning(
+                        "🚨 DIRECTIONAL CIRCUIT BREAKER ACTIVATED: %s locked for %d seconds (%d mins) after %d consecutive losses!",
+                        pos_type, lock_sec, lock_sec // 60, consec
+                    )
+                else:
+                    logger.warning("Trade LOSS: -$%.2f ❌ [%s consecutive losses: %d/%d]", abs(profit), pos_type, consec, threshold)
+
+            # Overall consecutive losses circuit breaker
+            max_overall = getattr(config, "OVERALL_CONSEC_LOSS_LOCK", 3)
+            if self._consecutive_losses >= max_overall:
+                lock_sec = getattr(config, "OVERALL_LOCK_SEC", 900)
+                self._overall_lock_until = now + lock_sec
+                logger.warning(
+                    "🚨 OVERALL CIRCUIT BREAKER ACTIVATED: All trading paused for %d seconds (%d mins) after %d consecutive losses!",
+                    lock_sec, lock_sec // 60, self._consecutive_losses
+                )
 
     def _calc_daily_pnl(self) -> float:
         trades = self._state.get("trades", [])

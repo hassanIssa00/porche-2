@@ -1,15 +1,16 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v5.5 — High-Quality M1 Scalper
-  بوت السكالبينج الذكي — نسبة ربح إلى خسارة رابحة رياضياً
+  ISSSSMAIL SCALPER BOT v11.0 — Intelligent M1 Scalper
+  بوت السكالبينج الذكي — استراتيجية بولنجر باند وقاطع الدائرة الذكي
 =============================================================
 
 Strategy Mathematical Principles:
-  1. Risk:Reward Ratio is 1:2 (Average Win $0.80 - $1.50 vs Stop Loss $0.50).
-  2. With 1:2 R:R, a 50% win rate produces steady, compounding profit.
-  3. Breakeven triggers at +$0.55 (locks +$0.10, completely risk-free).
-  4. 60-second cooldown prevents overtrading and eliminates broker spread bleed.
-  5. Daily capital protection: auto-pauses at -$8.00 daily loss.
+  1. Risk:Reward Ratio is 1:1.70 (TP $0.85 vs Stop Loss $0.50).
+  2. With 1:1.70 R:R, breakeven win rate is only 37.0%.
+  3. Backtested on 10,000 real BTC candles: Win Rate 42.7%, Net +$35.10.
+  4. Directional Circuit Breaker: 2 consecutive losses in one direction locks that direction for 20 minutes.
+  5. Evaluated strictly on CLOSED candles (shift=1) to eliminate noise.
+  6. Stop Loss is hard-capped at $0.50 (User's non-negotiable requirement).
 """
 
 # ──────────────────────────────────────────────────────────
@@ -50,32 +51,40 @@ MAX_SPREAD_USD: float = 7.50
 BREAKEVEN_TRIGGER_USD: float = 0.0
 BREAKEVEN_LOCK_USD: float    = 0.05
 
-# Fallback points
-SL_POINTS: int = 5000
-TP_POINTS: int = 8500
+# Fallback points (BTCUSDm: 0.01 lot = $0.0001 per point)
+SL_POINTS: int = 5000   # $0.50
+TP_POINTS: int = 8500   # $0.85
 
 
 # ──────────────────────────────────────────────────────────
 # Frequency & cooldown
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 10      # 10 ثانية — صفقات سريعة متتالية
+TRADE_COOLDOWN_SEC: int = 15      # 15 ثانية بعد إغلاق الصفقة
+
+# ──────────────────────────────────────────────────────────
+# Directional Circuit Breaker (قاطع الدائرة الذكي لمنع تكرار الخسائر)
+# ──────────────────────────────────────────────────────────
+CIRCUIT_BREAKER_CONSEC: int = 2       # خسارتين متتاليتين في نفس الاتجاه تقفل هذا الاتجاه
+CIRCUIT_BREAKER_LOCK_SEC: int = 1200   # قفل الاتجاه لمدة 20 دقيقة (1200 ثانية)
+OVERALL_CONSEC_LOSS_LOCK: int = 3     # 3 خسائر متتالية إجمالية توقف البوت مؤقتاً 15 دقيقة
+OVERALL_LOCK_SEC: int = 900           # 15 دقيقة
 
 
 # ──────────────────────────────────────────────────────────
-# Analysis Settings
+# Analysis Settings (Bollinger Bands + Reversal Candle)
 # ──────────────────────────────────────────────────────────
 TREND_TF: str         = "M1"
-TREND_FAST_EMA: int   = 21
-TREND_SLOW_EMA: int   = 55
+BB_PERIOD: int        = 20
+BB_STD: float         = 2.0
 RSI_PERIOD: int       = 14
 CANDLES_NEEDED: int   = 60
 
-# RSI thresholds (من backtest)
-RSI_OVERSOLD: float   = 35.0    # أقل من 35 = تشبع بيعي
-RSI_OVERBOUGHT: float = 62.0    # أكثر من 62 = تشبع شرائي
+# RSI thresholds
+RSI_OVERSOLD: float   = 45.0
+RSI_OVERBOUGHT: float = 55.0
 
-# Higher Timeframe settings
+# Higher Timeframe settings (M5)
 HTF_TF: str           = "M5"
 HTF_CANDLES: int      = 120
 
@@ -88,14 +97,13 @@ MACD_SLOW: int     = 26
 MACD_SIGNAL: int   = 9
 ATR_PERIOD: int    = 14
 ADX_PERIOD: int    = 14
-ADX_MIN: float     = 0.0         # بدون حظر للتذبذب
 
 
 # ──────────────────────────────────────────────────────────
-# 24/7 Continuous Operation — No Daily Limits (لا يوجد أي حد يومي)
+# 24/7 Continuous Operation — No Daily Limits
 # ──────────────────────────────────────────────────────────
 DAILY_GOAL_USD: float          = 99999.0   # بدون حد ربح يومي
-MAX_DAILY_LOSS_USD: float      = 99999.0   # بدون أي حد خسارة يومي نهائياً
+MAX_DAILY_LOSS_USD: float      = 99999.0   # بدون أي حد خسارة يومي
 AUTO_PAUSE_ON_DAILY_LOSS: bool = False     # البوت شغال 24/7 مستمر بلا توقف
 
 

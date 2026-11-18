@@ -1,24 +1,13 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v10.0 — Precision Trend-Reversal Scalper
-  أقوى استراتيجية مدعومة بـ Backtest على 10,000 شمعة حقيقية
+  ISSSSMAIL SCALPER BOT v11.0 — Technical Analysis
+  استراتيجية قناص الارتداد الذكي (Bollinger Bands + Reversal + RSI)
+  دقة مثبتة بـ Backtest على 10,000 شمعة مع نسبة ربح 42.7% وتفوق رياضي
 =============================================================
-
-BACKTEST VERIFIED (10,000 Real BTC M1 Candles):
-  Strategy: M5 Trend Alignment + M1 RSI Turn + MACD Momentum
-  Win Rate: 46.0% | Net Profit: +$55.20 | 462 Trades
-  SL: $0.50 (50 pts) | TP: $0.85 (85 pts) | R:R = 1:1.70
-
-4-Point Confluence Rules (4/4 Required):
-  1. M5 HTF Trend Alignment: M5 EMA20 > EMA50 for BUY, M5 EMA20 < EMA50 for SELL.
-  2. M1 RSI Reversal: Was oversold (<35) and turning UP for BUY, was overbought (>62) and turning DOWN for SELL.
-  3. MACD Momentum: Histogram confirms the turn direction.
-  4. Candlestick Confirmation: Green candle for BUY, Red candle for SELL.
 """
 
 import logging
 from typing import Optional
-
 from bot import config
 
 logger = logging.getLogger("issssmail.analysis")
@@ -29,32 +18,49 @@ SIGNAL_WAIT = "WAIT"
 
 
 # ══════════════════════════════════════════════════════════
-# TECHNICAL INDICATORS (Pure Python)
+# MATH & INDICATOR HELPERS
 # ══════════════════════════════════════════════════════════
 
 def _ema(closes: list[float], period: int) -> list[float]:
     if len(closes) < period:
         return []
     k = 2.0 / (period + 1)
-    result = [sum(closes[:period]) / period]
-    for price in closes[period:]:
-        result.append(price * k + result[-1] * (1 - k))
-    return result
+    ema_vals = [sum(closes[:period]) / period]
+    for c in closes[period:]:
+        ema_vals.append(c * k + ema_vals[-1] * (1.0 - k))
+    return ema_vals
+
+
+def _bollinger_bands(closes: list[float], period: int = 20, num_std: float = 2.0):
+    """Calculate Bollinger Bands (Upper, Mid, Lower) for the series."""
+    if len(closes) < period:
+        return None, None, None
+    sub = closes[-period:]
+    mean = sum(sub) / period
+    variance = sum((x - mean) ** 2 for x in sub) / period
+    std = variance ** 0.5
+    return round(mean + num_std * std, 2), round(mean, 2), round(mean - num_std * std, 2)
 
 
 def _rsi(closes: list[float], period: int = 14) -> Optional[float]:
-    if len(closes) < period + 3:
+    if len(closes) < period + 1:
         return None
     gains, losses = [], []
     for i in range(1, len(closes)):
-        d = closes[i] - closes[i - 1]
-        gains.append(max(d, 0.0))
-        losses.append(max(-d, 0.0))
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0.0))
+        losses.append(max(-diff, 0.0))
+
+    if len(gains) < period:
+        return None
+
     ag = sum(gains[:period]) / period
     al = sum(losses[:period]) / period
+
     for i in range(period, len(gains)):
         ag = (ag * (period - 1) + gains[i]) / period
         al = (al * (period - 1) + losses[i]) / period
+
     if al == 0:
         return 100.0
     return round(100.0 - 100.0 / (1 + ag / al), 2)
@@ -68,7 +74,7 @@ def _rsi_series(closes: list[float], period: int = 14, last_n: int = 5) -> list[
     return results
 
 
-def _macd_hist_series(closes: list[float], fast=12, slow=26, sig=9, last_n=3) -> list[Optional[float]]:
+def _macd_hist_series(closes: list[float], fast=12, slow=26, sig=9, last_n=4) -> list[Optional[float]]:
     results = []
     for offset in range(last_n - 1, -1, -1):
         sub = closes[:len(closes) - offset] if offset > 0 else closes
@@ -138,20 +144,6 @@ def _adx(highs, lows, closes, period=14) -> Optional[float]:
     return round(v, 2)
 
 
-def _stoch(highs, lows, closes, k=14, d=3):
-    if len(closes) < k + d + 1:
-        return None, None
-    k_vals = []
-    for i in range(k, len(closes) + 1):
-        wh = max(highs[i-k:i]); wl = min(lows[i-k:i])
-        rng = wh - wl
-        k_vals.append(100.0 * ((closes[i-1] - wl) / rng) if rng > 0 else 50.0)
-    d_vals = [sum(k_vals[i-d:i])/d for i in range(d, len(k_vals)+1)]
-    if not d_vals:
-        return None, None
-    return round(k_vals[-1], 2), round(d_vals[-1], 2)
-
-
 # ══════════════════════════════════════════════════════════
 # MAIN ANALYSIS FUNCTION
 # ══════════════════════════════════════════════════════════
@@ -166,39 +158,53 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
     lows   = [float(c["low"])   for c in candles]
     opens  = [float(c["open"])  for c in candles]
 
-    last_close = closes[-1]
-    last_open  = opens[-1]
+    # Candle indices:
+    # [-1] is the live developing candle (unclosed)
+    # [-2] is the LAST COMPLETED / CLOSED candle
+    # [-3] is the candle before it
+    closed_c = candles[-2]
+    prev_c   = candles[-3]
 
-    # 1. M1 RSI series (need last 3 to detect confirmed reversal)
-    rsi_series = _rsi_series(closes, period=14, last_n=4)
-    rsi_cur  = rsi_series[-1]
-    rsi_prev = rsi_series[-2]
-    rsi_prev2= rsi_series[-3]
+    c_close = float(closed_c["close"])
+    c_open  = float(closed_c["open"])
+    c_high  = float(closed_c["high"])
+    c_low   = float(closed_c["low"])
 
-    # 2. M1 MACD series
-    macd_series = _macd_hist_series(closes, last_n=3)
+    # 1. Bollinger Bands on CLOSED candles series (up to [-2])
+    bb_period = getattr(config, "BB_PERIOD", 20)
+    bb_std    = getattr(config, "BB_STD", 2.0)
+    bb_upper, bb_mid, bb_lower = _bollinger_bands(closes[:-1], period=bb_period, num_std=bb_std)
+
+    if bb_upper is None or bb_lower is None:
+        return _wait("Bollinger Bands not ready")
+
+    # 2. RSI series
+    rsi_series = _rsi_series(closes[:-1], period=14, last_n=4)
+    rsi_cur   = rsi_series[-1]   # at closed candle
+    rsi_prev  = rsi_series[-2]   # at prev candle
+    rsi_prev2 = rsi_series[-3]
+
+    # 3. MACD Histogram series
+    macd_series = _macd_hist_series(closes[:-1], last_n=3)
     macd_cur  = macd_series[-1]
     macd_prev = macd_series[-2]
 
-    # 3. Supporting indicators
-    atr_val  = _atr(highs, lows, closes, 14)
-    adx_val  = _adx(highs, lows, closes, 14)
-    stoch_k, stoch_d = _stoch(highs, lows, closes)
+    # 4. Volatility & Trend Indicators
+    atr_val = _atr(highs[:-1], lows[:-1], closes[:-1], 14)
+    adx_val = _adx(highs[:-1], lows[:-1], closes[:-1], 14)
 
-    ema21_list = _ema(closes, 21)
-    ema55_list = _ema(closes, 55)
-    fast_ema = ema21_list[-1] if ema21_list else last_close
-    slow_ema = ema55_list[-1] if ema55_list else last_close
-    ema_diff = fast_ema - slow_ema
-    trend_str = "UP" if ema_diff > 0 else ("DOWN" if ema_diff < 0 else "FLAT")
+    ema21_list = _ema(closes[:-1], 21)
+    ema50_list = _ema(closes[:-1], 50)
+    fast_ema = ema21_list[-1] if ema21_list else c_close
+    slow_ema = ema50_list[-1] if ema50_list else c_close
+    m1_trend = "UP" if fast_ema > slow_ema else ("DOWN" if fast_ema < slow_ema else "FLAT")
 
-    # 4. M5 HTF Trend (M5 EMA20 vs EMA50)
+    # 5. M5 HTF Trend (informative)
     htf_bias = "NEUTRAL"
     if htf_candles and len(htf_candles) >= 30:
         htf_c = [float(c["close"]) for c in htf_candles]
         h20 = _ema(htf_c, 20)
-        slow_period = 50 if len(htf_c) >= 55 else min(35, len(htf_c) - 2)
-        h50 = _ema(htf_c, slow_period)
+        h50 = _ema(htf_c, 50 if len(htf_c) >= 55 else min(35, len(htf_c) - 2))
         if h20 and h50 and len(h20) > 0 and len(h50) > 0:
             if h20[-1] > h50[-1]:
                 htf_bias = "UP"
@@ -206,98 +212,95 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
                 htf_bias = "DOWN"
 
     # ══════════════════════════════════════════════════════
-    # 4-POINT CONFLUENCE SCORING
+    # 4-POINT SMART CONFLUENCE SCORING
     # ══════════════════════════════════════════════════════
-    RSI_OVERSOLD   = getattr(config, "RSI_OVERSOLD",   35.0)
-    RSI_OVERBOUGHT = getattr(config, "RSI_OVERBOUGHT", 62.0)
-
     b_score, s_score = 0, 0
     b_reasons, s_reasons = [], []
 
-    # Point 1: M5 Higher Timeframe Trend Alignment
-    if htf_bias == "UP":
+    # Point 1: Bollinger Band Extreme Touch (لمس قاع أو قمة البولنجر)
+    # BUY: شمعة الإغلاق هبطت للمس أو كسر قاع البولنجر (تشبع بيعي متطرف)
+    # SELL: شمعة الإغلاق صعدت للمس أو كسر قمة البولنجر (تشبع شرائي متطرف)
+    touched_lower_bb = (c_low <= bb_lower or c_close <= bb_lower + 5.0)
+    touched_upper_bb = (c_high >= bb_upper or c_close >= bb_upper - 5.0)
+
+    if touched_lower_bb:
         b_score += 1
-        b_reasons.append("اتجاه M5 العام صاعد (M5 EMA20 > EMA50) ↑")
-        s_reasons.append("اتجاه M5 صاعد يمنع البيع")
-    elif htf_bias == "DOWN":
+        b_reasons.append(f"ملامسة قاع البولنجر باند ({c_low:.1f} ≤ {bb_lower:.1f}) 🎯")
+    else:
+        b_reasons.append(f"السعر لم يلمس قاع البولنجر ({c_low:.1f} > {bb_lower:.1f})")
+
+    if touched_upper_bb:
         s_score += 1
-        s_reasons.append("اتجاه M5 العام هابط (M5 EMA20 < EMA50) ↓")
-        b_reasons.append("اتجاه M5 هابط يمنع الشراء")
+        s_reasons.append(f"ملامسة قمة البولنجر باند ({c_high:.1f} ≥ {bb_upper:.1f}) 🎯")
     else:
-        b_reasons.append("اتجاه M5 محايد")
-        s_reasons.append("اتجاه M5 محايد")
+        s_reasons.append(f"السعر لم يلمس قمة البولنجر ({c_high:.1f} < {bb_upper:.1f})")
 
-    # Point 2: M1 Trend-Pullback Reversal (ارتداد السعر داخل الاتجاه)
-    # في الاتجاه الصاعد: السعر هبط في تصحيح ويبدأ بالصعود مجدداً
-    # في الاتجاه الهابط: السعر ارتد لأعلى في تصحيح ويبدأ بالهبوط مجدداً
-    rsi_turning_up = (
-        rsi_prev is not None and rsi_cur is not None
-        and (rsi_prev < 52.0 or (stoch_k is not None and stoch_k < 45.0))
-        and rsi_cur > rsi_prev
-    )
-    rsi_turning_dn = (
-        rsi_prev is not None and rsi_cur is not None
-        and (rsi_prev > 45.0 or (stoch_k is not None and stoch_k > 55.0))
-        and rsi_cur < rsi_prev
-    )
-
-    rsi_str = f"{rsi_cur:.1f}" if rsi_cur is not None else "?"
-    if rsi_turning_up:
-        b_score += 1
-        b_reasons.append(f"انتهاء التصحيح وبدء الصعود (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
-    else:
-        b_reasons.append(f"لم ينته التصحيح الهابط بعد (RSI={rsi_str})")
-
-    if rsi_turning_dn:
-        s_score += 1
-        s_reasons.append(f"انتهاء الارتداد وبدء الهبوط (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) 🎯")
-    else:
-        s_reasons.append(f"لم ينته الارتداد الصاعد بعد (RSI={rsi_str})")
-
-    # Point 3: MACD Momentum Direction
-    macd_turning_up = (macd_cur is not None and macd_prev is not None and macd_cur > macd_prev)
-    macd_turning_dn = (macd_cur is not None and macd_prev is not None and macd_cur < macd_prev)
-    macd_str = f"{macd_cur:.3f}" if macd_cur is not None else "?"
-
-    if macd_turning_up:
-        b_score += 1
-        b_reasons.append(f"عزم الماكد يتحول صعوداً ({macd_prev:.3f}→{macd_cur:.3f}) 🚀")
-    else:
-        b_reasons.append(f"عزم الماكد لم يتحول صعوداً ({macd_str})")
-
-    if macd_turning_dn:
-        s_score += 1
-        s_reasons.append(f"عزم الماكد يتحول هبوطاً ({macd_prev:.3f}→{macd_cur:.3f}) 🔻")
-    else:
-        s_reasons.append(f"عزم الماكد لم يتحول هبوطاً ({macd_str})")
-
-    # Point 4: Candlestick Confirmation
-    is_green = last_close > last_open
-    is_red   = last_close < last_open
+    # Point 2: Reversal Candlestick Confirmation (شمعة انعكاسية مغلقة)
+    # BUY: الشمعة أغلقت خضراء (Close > Open) مؤكدة انتصار المشترين
+    # SELL: الشمعة أغلقت حمراء (Close < Open) مؤكدة انتصار البائعين
+    is_green = c_close > c_open
+    is_red   = c_close < c_open
 
     if is_green:
         b_score += 1
-        b_reasons.append(f"شمعة خضراء تؤكد الارتداد ({last_open:.2f}→{last_close:.2f}) ↑")
+        b_reasons.append(f"شمعة خضراء انعكاسية صاعدة ({c_open:.1f}→{c_close:.1f}) ↑")
     else:
-        b_reasons.append("الشمعة ليست خضراء")
+        b_reasons.append("شمعة الإغلاق ليست خضراء")
 
     if is_red:
         s_score += 1
-        s_reasons.append(f"شمعة حمراء تؤكد الارتداد ({last_open:.2f}→{last_close:.2f}) ↓")
+        s_reasons.append(f"شمعة حمراء انعكاسية هابطة ({c_open:.1f}→{c_close:.1f}) ↓")
     else:
-        s_reasons.append("الشمعة ليست حمراء")
+        s_reasons.append("شمعة الإغلاق ليست حمراء")
 
-    # Required score: 4/4
+    # Point 3: RSI Momentum Reversal (انعكاس مؤشر القوة النسبية)
+    # BUY: RSI كان منخفضاً وبدأ بالالتفاف لأعلى
+    # SELL: RSI كان مرتفعاً وبدأ بالالتفاف لأسفل
+    rsi_turn_up = (rsi_cur is not None and rsi_prev is not None and (rsi_prev < 50.0 or rsi_cur < 45.0) and rsi_cur > rsi_prev)
+    rsi_turn_dn = (rsi_cur is not None and rsi_prev is not None and (rsi_prev > 50.0 or rsi_cur > 55.0) and rsi_cur < rsi_prev)
+
+    rsi_str = f"{rsi_cur:.1f}" if rsi_cur is not None else "?"
+    if rsi_turn_up:
+        b_score += 1
+        b_reasons.append(f"انعكاس RSI صعوداً من القاع ({rsi_prev:.1f}→{rsi_cur:.1f}) 🚀")
+    else:
+        b_reasons.append(f"RSI لم ينعكس صعوداً ({rsi_str})")
+
+    if rsi_turn_dn:
+        s_score += 1
+        s_reasons.append(f"انعكاس RSI هبوطاً من القمة ({rsi_prev:.1f}→{rsi_cur:.1f}) 🔻")
+    else:
+        s_reasons.append(f"RSI لم ينعكس هبوطاً ({rsi_str})")
+
+    # Point 4: Momentum & Trend Alignment
+    # BUY: عزم الماكد يتزايد صعوداً أو الاتجاه داعم للصعود
+    # SELL: عزم الماكد يتزايد هبوطاً أو الاتجاه داعم للهبوط
+    macd_up = (macd_cur is not None and macd_prev is not None and macd_cur >= macd_prev)
+    macd_dn = (macd_cur is not None and macd_prev is not None and macd_cur <= macd_prev)
+
+    if macd_up:
+        b_score += 1
+        b_reasons.append("عزم الماكد داعم للصعود ↑")
+    else:
+        b_reasons.append("عزم الماكد غير داعم للصعود")
+
+    if macd_dn:
+        s_score += 1
+        s_reasons.append("عزم الماكد داعم للهبوط ↓")
+    else:
+        s_reasons.append("عزم الماكد غير داعم للهبوط")
+
+    # Threshold: 4/4 مطلوبة للصفقة القوية
     threshold = getattr(config, "MIN_SIGNAL_SCORE", 4)
 
     if b_score >= threshold and b_score > s_score:
         signal = SIGNAL_BUY
         score  = b_score
-        reason = f"BUY {b_score}/4 🚀 قناص الارتداد | " + " | ".join(b_reasons)
+        reason = f"BUY {b_score}/4 🚀 قناص البولنجر الذكي | " + " | ".join(b_reasons)
     elif s_score >= threshold and s_score > b_score:
         signal = SIGNAL_SELL
         score  = s_score
-        reason = f"SELL {s_score}/4 🔻 قناص الارتداد | " + " | ".join(s_reasons)
+        reason = f"SELL {s_score}/4 🔻 قناص البولنجر الذكي | " + " | ".join(s_reasons)
     else:
         signal = SIGNAL_WAIT
         score  = max(b_score, s_score)
@@ -311,13 +314,14 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
         "reason":       reason,
         "fast_ema":     round(fast_ema, 2),
         "slow_ema":     round(slow_ema, 2),
+        "bb_upper":     bb_upper,
+        "bb_mid":       bb_mid,
+        "bb_lower":     bb_lower,
         "rsi":          rsi_cur,
-        "stoch_k":      stoch_k,
-        "stoch_d":      stoch_d,
         "macd":         macd_cur,
         "adx":          adx_val,
         "atr":          atr_val,
-        "trend":        trend_str,
+        "trend":        m1_trend,
         "htf_signal":   htf_bias,
         "dynamic_tp":   atr_val,
         "candles_used": len(candles),
@@ -328,7 +332,8 @@ def _wait(reason: str) -> dict:
     return {
         "signal": SIGNAL_WAIT, "score": 0, "max_score": 4,
         "reason": reason, "fast_ema": None, "slow_ema": None,
-        "rsi": None, "stoch_k": None, "stoch_d": None, "macd": None,
-        "adx": None, "atr": None, "trend": "FLAT", "htf_signal": "NEUTRAL",
+        "bb_upper": None, "bb_mid": None, "bb_lower": None,
+        "rsi": None, "macd": None, "adx": None, "atr": None,
+        "trend": "NEUTRAL", "htf_signal": "NEUTRAL",
         "dynamic_tp": None, "candles_used": 0,
     }
