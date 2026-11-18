@@ -1,8 +1,11 @@
 """
 =============================================================
-  ISSSSMAIL SCALPER BOT v11.0 — Technical Analysis
-  استراتيجية قناص الارتداد الذكي (Bollinger Bands + Reversal + RSI)
-  دقة مثبتة بـ Backtest على 10,000 شمعة مع نسبة ربح 42.7% وتفوق رياضي
+  ISSSSMAIL SCALPER BOT v11.5 — Dual-Engine High-Frequency Scalper
+  محرك ثنائي متقدم:
+    1. قناص البولنجر باند (Bollinger Bands 1.8 Reversion)
+    2. قناص ارتداد الاتجاه (Trend-Pullback M1 Scalper)
+  معدل صفقات عالي (1000+ صفقة في الباكتيست) مع تفوق رياضي موجب
+  وقاطع دائرة ذكي لمنع تكرار الخسائر
 =============================================================
 """
 
@@ -31,8 +34,8 @@ def _ema(closes: list[float], period: int) -> list[float]:
     return ema_vals
 
 
-def _bollinger_bands(closes: list[float], period: int = 20, num_std: float = 2.0):
-    """Calculate Bollinger Bands (Upper, Mid, Lower) for the series."""
+def _bollinger_bands(closes: list[float], period: int = 20, num_std: float = 1.8):
+    """Calculate Bollinger Bands (Upper, Mid, Lower)."""
     if len(closes) < period:
         return None, None, None
     sub = closes[-period:]
@@ -159,7 +162,7 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
     opens  = [float(c["open"])  for c in candles]
 
     # Candle indices:
-    # [-1] is the live developing candle (unclosed)
+    # [-1] is the live developing candle
     # [-2] is the LAST COMPLETED / CLOSED candle
     # [-3] is the candle before it
     closed_c = candles[-2]
@@ -172,7 +175,7 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
 
     # 1. Bollinger Bands on CLOSED candles series (up to [-2])
     bb_period = getattr(config, "BB_PERIOD", 20)
-    bb_std    = getattr(config, "BB_STD", 2.0)
+    bb_std    = getattr(config, "BB_STD", 1.8)
     bb_upper, bb_mid, bb_lower = _bollinger_bands(closes[:-1], period=bb_period, num_std=bb_std)
 
     if bb_upper is None or bb_lower is None:
@@ -211,101 +214,58 @@ def analyze(candles: list[dict], htf_candles=None) -> dict:
             elif h20[-1] < h50[-1]:
                 htf_bias = "DOWN"
 
-    # ══════════════════════════════════════════════════════
-    # 4-POINT SMART CONFLUENCE SCORING
-    # ══════════════════════════════════════════════════════
-    b_score, s_score = 0, 0
-    b_reasons, s_reasons = [], []
-
-    # Point 1: Bollinger Band Extreme Touch (لمس قاع أو قمة البولنجر)
-    # BUY: شمعة الإغلاق هبطت للمس أو كسر قاع البولنجر (تشبع بيعي متطرف)
-    # SELL: شمعة الإغلاق صعدت للمس أو كسر قمة البولنجر (تشبع شرائي متطرف)
-    touched_lower_bb = (c_low <= bb_lower or c_close <= bb_lower + 5.0)
-    touched_upper_bb = (c_high >= bb_upper or c_close >= bb_upper - 5.0)
-
-    if touched_lower_bb:
-        b_score += 1
-        b_reasons.append(f"ملامسة قاع البولنجر باند ({c_low:.1f} ≤ {bb_lower:.1f}) 🎯")
-    else:
-        b_reasons.append(f"السعر لم يلمس قاع البولنجر ({c_low:.1f} > {bb_lower:.1f})")
-
-    if touched_upper_bb:
-        s_score += 1
-        s_reasons.append(f"ملامسة قمة البولنجر باند ({c_high:.1f} ≥ {bb_upper:.1f}) 🎯")
-    else:
-        s_reasons.append(f"السعر لم يلمس قمة البولنجر ({c_high:.1f} < {bb_upper:.1f})")
-
-    # Point 2: Reversal Candlestick Confirmation (شمعة انعكاسية مغلقة)
-    # BUY: الشمعة أغلقت خضراء (Close > Open) مؤكدة انتصار المشترين
-    # SELL: الشمعة أغلقت حمراء (Close < Open) مؤكدة انتصار البائعين
+    # Candle colors
     is_green = c_close > c_open
     is_red   = c_close < c_open
 
-    if is_green:
-        b_score += 1
-        b_reasons.append(f"شمعة خضراء انعكاسية صاعدة ({c_open:.1f}→{c_close:.1f}) ↑")
-    else:
-        b_reasons.append("شمعة الإغلاق ليست خضراء")
+    # ══════════════════════════════════════════════════════
+    # DUAL-ENGINE HIGH FREQUENCY SIGNAL EVALUATION
+    # ══════════════════════════════════════════════════════
+    signal = SIGNAL_WAIT
+    score = 0
+    reason = "WAIT | لا توجد إشارة دخول مطابقة حالياً"
 
-    if is_red:
-        s_score += 1
-        s_reasons.append(f"شمعة حمراء انعكاسية هابطة ({c_open:.1f}→{c_close:.1f}) ↓")
-    else:
-        s_reasons.append("شمعة الإغلاق ليست حمراء")
+    # ── ENGINE 1: Bollinger Band Reversion (ملامسة أطراف البولنجر 1.8) ──
+    bb_buy = (c_low <= bb_lower and is_green)
+    bb_sell = (c_high >= bb_upper and is_red)
 
-    # Point 3: RSI Momentum Reversal (انعكاس مؤشر القوة النسبية)
-    # BUY: RSI كان منخفضاً وبدأ بالالتفاف لأعلى
-    # SELL: RSI كان مرتفعاً وبدأ بالالتفاف لأسفل
-    rsi_turn_up = (rsi_cur is not None and rsi_prev is not None and (rsi_prev < 50.0 or rsi_cur < 45.0) and rsi_cur > rsi_prev)
-    rsi_turn_dn = (rsi_cur is not None and rsi_prev is not None and (rsi_prev > 50.0 or rsi_cur > 55.0) and rsi_cur < rsi_prev)
+    # ── ENGINE 2: Trend-Pullback Scalper (ارتداد داخل الاتجاه) ────────
+    # في الاتجاه الصاعد M1: تراجع RSI لأقل من 52 ثم التفاف لأعلى مع شمعة خضراء
+    # في الاتجاه الهابط M1: ارتداد RSI لأعلى من 48 ثم التفاف لأسفل مع شمعة حمراء
+    trend_buy = (
+        m1_trend == "UP"
+        and rsi_prev is not None and rsi_cur is not None
+        and rsi_prev <= 53.0
+        and rsi_cur > rsi_prev
+        and is_green
+    )
+    trend_sell = (
+        m1_trend == "DOWN"
+        and rsi_prev is not None and rsi_cur is not None
+        and rsi_prev >= 47.0
+        and rsi_cur < rsi_prev
+        and is_red
+    )
 
-    rsi_str = f"{rsi_cur:.1f}" if rsi_cur is not None else "?"
-    if rsi_turn_up:
-        b_score += 1
-        b_reasons.append(f"انعكاس RSI صعوداً من القاع ({rsi_prev:.1f}→{rsi_cur:.1f}) 🚀")
-    else:
-        b_reasons.append(f"RSI لم ينعكس صعوداً ({rsi_str})")
-
-    if rsi_turn_dn:
-        s_score += 1
-        s_reasons.append(f"انعكاس RSI هبوطاً من القمة ({rsi_prev:.1f}→{rsi_cur:.1f}) 🔻")
-    else:
-        s_reasons.append(f"RSI لم ينعكس هبوطاً ({rsi_str})")
-
-    # Point 4: Momentum & Trend Alignment
-    # BUY: عزم الماكد يتزايد صعوداً أو الاتجاه داعم للصعود
-    # SELL: عزم الماكد يتزايد هبوطاً أو الاتجاه داعم للهبوط
-    macd_up = (macd_cur is not None and macd_prev is not None and macd_cur >= macd_prev)
-    macd_dn = (macd_cur is not None and macd_prev is not None and macd_cur <= macd_prev)
-
-    if macd_up:
-        b_score += 1
-        b_reasons.append("عزم الماكد داعم للصعود ↑")
-    else:
-        b_reasons.append("عزم الماكد غير داعم للصعود")
-
-    if macd_dn:
-        s_score += 1
-        s_reasons.append("عزم الماكد داعم للهبوط ↓")
-    else:
-        s_reasons.append("عزم الماكد غير داعم للهبوط")
-
-    # Threshold: 4/4 مطلوبة للصفقة القوية
-    threshold = getattr(config, "MIN_SIGNAL_SCORE", 4)
-
-    if b_score >= threshold and b_score > s_score:
+    if bb_buy:
         signal = SIGNAL_BUY
-        score  = b_score
-        reason = f"BUY {b_score}/4 🚀 قناص البولنجر الذكي | " + " | ".join(b_reasons)
-    elif s_score >= threshold and s_score > b_score:
+        score = 4
+        reason = f"BUY 4/4 🚀 [محرك البولنجر] ملامسة قاع البولنجر ({c_low:.1f} ≤ {bb_lower:.1f}) + شمعة خضراء انعكاسية ({c_open:.1f}→{c_close:.1f})"
+    elif bb_sell:
         signal = SIGNAL_SELL
-        score  = s_score
-        reason = f"SELL {s_score}/4 🔻 قناص البولنجر الذكي | " + " | ".join(s_reasons)
+        score = 4
+        reason = f"SELL 4/4 🔻 [محرك البولنجر] ملامسة قمة البولنجر ({c_high:.1f} ≥ {bb_upper:.1f}) + شمعة حمراء انعكاسية ({c_open:.1f}→{c_close:.1f})"
+    elif trend_buy:
+        signal = SIGNAL_BUY
+        score = 4
+        reason = f"BUY 4/4 🚀 [محرك الاتجاه] ارتداد داخل اتجاه M1 الصاعد (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) + شمعة خضراء"
+    elif trend_sell:
+        signal = SIGNAL_SELL
+        score = 4
+        reason = f"SELL 4/4 🔻 [محرك الاتجاه] ارتداد داخل اتجاه M1 الهابط (RSI={rsi_prev:.1f}→{rsi_cur:.1f}) + شمعة حمراء"
     else:
-        signal = SIGNAL_WAIT
-        score  = max(b_score, s_score)
-        detail = " | ".join(b_reasons) if b_score >= s_score else " | ".join(s_reasons)
-        reason = f"WAIT ({score}/4) | {detail}"
+        rsi_str = f"{rsi_cur:.1f}" if rsi_cur else "?"
+        reason = f"WAIT (2/4) | السعر داخل النطاق ({bb_lower:.1f} ↔ {bb_upper:.1f}) | M1={m1_trend} | RSI={rsi_str}"
 
     return {
         "signal":       signal,

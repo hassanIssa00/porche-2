@@ -60,23 +60,23 @@ TP_POINTS: int = 8500   # $0.85
 # Frequency & cooldown
 # ──────────────────────────────────────────────────────────
 MAX_OPEN_POSITIONS: int = 1
-TRADE_COOLDOWN_SEC: int = 15      # 15 ثانية بعد إغلاق الصفقة
+TRADE_COOLDOWN_SEC: int = 10      # 10 ثواني فقط بعد إغلاق الصفقة (معدل صفقات عالي)
 
 # ──────────────────────────────────────────────────────────
 # Directional Circuit Breaker (قاطع الدائرة الذكي لمنع تكرار الخسائر)
 # ──────────────────────────────────────────────────────────
 CIRCUIT_BREAKER_CONSEC: int = 2       # خسارتين متتاليتين في نفس الاتجاه تقفل هذا الاتجاه
-CIRCUIT_BREAKER_LOCK_SEC: int = 1200   # قفل الاتجاه لمدة 20 دقيقة (1200 ثانية)
+CIRCUIT_BREAKER_LOCK_SEC: int = 900   # قفل الاتجاه لمدة 15 دقيقة (900 ثانية)
 OVERALL_CONSEC_LOSS_LOCK: int = 3     # 3 خسائر متتالية إجمالية توقف البوت مؤقتاً 15 دقيقة
 OVERALL_LOCK_SEC: int = 900           # 15 دقيقة
 
 
 # ──────────────────────────────────────────────────────────
-# Analysis Settings (Bollinger Bands + Reversal Candle)
+# Analysis Settings (Dual-Engine: BB 1.8 + Trend Pullback)
 # ──────────────────────────────────────────────────────────
 TREND_TF: str         = "M1"
 BB_PERIOD: int        = 20
-BB_STD: float         = 2.0
+BB_STD: float         = 1.8
 RSI_PERIOD: int       = 14
 CANDLES_NEEDED: int   = 60
 
